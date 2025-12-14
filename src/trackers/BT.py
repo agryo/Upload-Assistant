@@ -355,6 +355,9 @@ class BT:
 
         # Signature
         desc_parts.append(f"[center][url=https://github.com/Audionut/Upload-Assistant]Upload realizado via {meta['ua_name']} {meta['current_version']}[/url][/center]")
+        
+        # Minha assinatura final
+        desc_parts.append(f"\n\n[center][img]https://i.postimg.cc/FzTpBnVh/012-Screens.png[/img][/center]")
 
         description = '\n\n'.join(part for part in desc_parts if part.strip())
 
