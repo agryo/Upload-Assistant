@@ -358,6 +358,9 @@ class BT:
 
         description = '\n\n'.join(part for part in desc_parts if part.strip())
 
+        # Minha assinatura final
+        desc_parts.append(f"\n\n[center][img]https://i.postimg.cc/FzTpBnVh/012-Screens.png[/img][/center]")
+        
         bbcode = BBCODE()
         description = bbcode.remove_img_resize(description)
         description = bbcode.remove_list(description)

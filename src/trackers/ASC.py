@@ -363,7 +363,8 @@ class ASC:
         for i in range(1, 4):
             description_parts.append(await self.format_image(layout_image.get(f'BARRINHA_CUSTOM_T_{i}')))
         description_parts.append(f"\n{await self.format_image(layout_image.get('BARRINHA_APRESENTA'))}\n")
-        description_parts.append(f"\n[size=3]{await self.get_title(meta)}[/size]\n")
+        # Título personalizado (No inicio do build_description)
+        description_parts.append(f"\n[color=green][b][size=6]{await self.get_title(meta)}[/size][/b][/color]\n")
 
         # Poster
         poster_path = (self.season_tmdb_data or {}).get('poster_path') or (self.main_tmdb_data or {}).get('poster_path') or meta.get('tmdb_poster')
@@ -490,6 +491,9 @@ class ASC:
             description_parts.append(custom_description_header + '\n')
 
         description_parts.append(f"[center][url=https://github.com/Audionut/Upload-Assistant]Upload realizado via {meta['ua_name']} {meta['current_version']}[/url][/center]")
+        
+        # Minha assinatura final
+        description_parts.append(f"\n\n[center][img]https://i.postimg.cc/9XbL0r5s/013-Aproveite.png[/img]\n\n\n\n\n[img]https://i.postimg.cc/FzTpBnVh/012-Screens.png[/img][/center]")
 
         final_desc_path = f"{meta['base_dir']}/tmp/{meta['uuid']}/[{self.tracker}]DESCRIPTION.txt"
         with open(final_desc_path, 'w', encoding='utf-8') as descfile:
