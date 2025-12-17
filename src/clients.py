@@ -1,4 +1,4 @@
-# Upload Assistant © 2025 Audionut — Licensed under UAPL v1.0
+# Upload Assistant © 2025 Audionut & wastaken7 — Licensed under UAPL v1.0
 # -*- coding: utf-8 -*-
 import aiohttp
 import asyncio
@@ -2882,6 +2882,7 @@ async def match_tracker_url(tracker_urls, meta):
         'stc': ["https://skipthecommercials.xyz"],
         'thr': ["torrenthr"],
         'tl': ["tracker.tleechreload", "tracker.torrentleech"],
+        'tlz': ["https://tlzdigital.com/"],
         'ttr': ["https://torrenteros.org"],
         'tvc': ["https://tvchaosuk.com"],
         'ulcx': ["https://upload.cx"],
