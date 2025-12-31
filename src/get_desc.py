@@ -18,6 +18,33 @@ from src.trackers.COMMON import COMMON
 from src.uploadscreens import upload_screens
 
 
+def html_to_bbcode(text):
+    """Convert HTML tags to BBCode format."""
+    if not text:
+        return text
+
+    # Define HTML to BBCode tag mappings
+    html_bbcode_map = [
+        (r'<b>(.*?)</b>', r'[b]\1[/b]'),
+        (r'<i>(.*?)</i>', r'[i]\1[/i]'),
+        (r'<u>(.*?)</u>', r'[u]\1[/u]'),
+        (r'<s>(.*?)</s>', r'[s]\1[/s]'),
+        (r'<em>(.*?)</em>', r'[i]\1[/i]'),
+        (r'<strong>(.*?)</strong>', r'[b]\1[/b]'),
+        (r'<strike>(.*?)</strike>', r'[s]\1[/s]'),
+        (r'<del>(.*?)</del>', r'[s]\1[/s]'),
+        (r'<br\s*/?>', r'\n'),
+        (r'<br>', r'\n'),
+        (r'<p>(.*?)</p>', r'\1\n'),
+    ]
+
+    converted_text = text
+    for html_pattern, bbcode_replacement in html_bbcode_map:
+        converted_text = re.sub(html_pattern, bbcode_replacement, converted_text, flags=re.IGNORECASE | re.DOTALL)
+
+    return converted_text
+
+
 async def gen_desc(meta):
     def clean_text(text):
         return text.replace("\r\n", "\n").strip()
@@ -222,6 +249,11 @@ class DescriptionBuilder:
             season_number = meta.get("season", "")
             episode_number = meta.get("episode", "")
             overview = tvmaze_episode_data.get("overview", "") or meta.get("overview_meta", "")
+
+            # Convert HTML tags to BBCode
+            if overview:
+                overview = html_to_bbcode(overview)
+
             episode_title = meta.get("auto_episode_title") or tvmaze_episode_data.get("episode_name", "")
 
             image = ""
@@ -345,6 +377,20 @@ class DescriptionBuilder:
                 return screenheader
         except Exception as e:
             console.print(f"[yellow]Warning: Error getting screenshot header: {str(e)}[/yellow]")
+
+        return ""
+
+    async def menu_screenshot_header(self, meta, tracker):
+        """Returns the screenshot header for menus if applicable."""
+        try:
+            if meta.get("is_disc", "") and meta.get('menu_images', []):
+                disc_menu_header = self.config["TRACKERS"][tracker].get(
+                    "disc_menu_header", self.config["DEFAULT"].get("disc_menu_header", None)
+                )
+                if disc_menu_header:
+                    return disc_menu_header
+        except Exception as e:
+            console.print(f"[yellow]Warning: Error getting menus screenshot header: {str(e)}[/yellow]")
 
         return ""
 
@@ -489,12 +535,9 @@ class DescriptionBuilder:
         if episode_overview:
             if tracker == "HUNO":
                 desc_parts.append(f"[center]{title}[/center]\n")
-            else:
-                desc_parts.append(f"[center][pre]{title}[/pre][/center]\n")
-
-            if tracker == "HUNO":
                 desc_parts.append(f"[center]{episode_overview}[/center]\n")
             else:
+                desc_parts.append(f"[center][pre]{title}[/pre][/center]\n")
                 desc_parts.append(f"[center][pre]{episode_overview}[/pre][/center]\n")
 
         # Description that may come from API requests
@@ -525,6 +568,9 @@ class DescriptionBuilder:
 
         # Description from file/pastebin link
         desc_parts.append(await self.get_user_description(meta))
+
+        # Menu Screenshots
+        desc_parts.append(await self.menu_section(meta, tracker))
 
         # Tonemapped Header
         desc_parts.append(await self.get_tonemapped_header(meta, tracker))
@@ -655,16 +701,7 @@ class DescriptionBuilder:
         thumb_size = int(self.config["DEFAULT"].get("pack_thumb_size", "300"))
         process_limit = int(self.config["DEFAULT"].get("processLimit", 10))
 
-        try:
-            # If screensPerRow is set, use that to determine how many screenshots should be on each row. Otherwise, use 2 as default
-            screensPerRow = int(self.config["DEFAULT"].get("screens_per_row", 2))
-            if tracker == "HUNO":
-                width = int(self.config["DEFAULT"].get("thumbnail_size", "350"))
-                # Adjust screensPerRow to keep total width below 1100
-                while screensPerRow * width > 1100 and screensPerRow > 1:
-                    screensPerRow -= 1
-        except Exception:
-            screensPerRow = 2
+        screensPerRow = await self.get_screens_per_row(tracker)
 
         desc_parts = []
 
@@ -1248,3 +1285,45 @@ class DescriptionBuilder:
         description = "".join(part for part in desc_parts if part.strip())
 
         return description
+
+    async def get_screens_per_row(self, tracker):
+        try:
+            # If screensPerRow is set, use that to determine how many screenshots should be on each row. Otherwise, use 2 as default
+            screensPerRow = int(self.config["DEFAULT"].get("screens_per_row", 2))
+            if tracker == "HUNO":
+                width = int(self.config["DEFAULT"].get("thumbnail_size", "350"))
+                # Adjust screensPerRow to keep total width below 1100
+                while screensPerRow * width > 1100 and screensPerRow > 1:
+                    screensPerRow -= 1
+        except Exception:
+            screensPerRow = 2
+        return screensPerRow
+
+    async def menu_section(self, meta, tracker):
+        menu_image_section = ""
+        try:
+            disc_menu_header = await self.menu_screenshot_header(meta, tracker)
+            screensPerRow = await self.get_screens_per_row(tracker)
+            if meta.get("is_disc"):
+                menu_parts = []
+                menu_images = meta.get("menu_images", [])
+                if disc_menu_header and menu_images:
+                    menu_parts.append(disc_menu_header + "\n")
+                if menu_images:
+                    menu_parts.append("[center]")
+                    for img_index, image in enumerate(menu_images):
+                        web_url = image.get("web_url")
+                        raw_url = image.get("raw_url")
+                        if not web_url or not raw_url:
+                            continue
+                        menu_parts.append(
+                            f"[url={web_url}][img={self.config['DEFAULT'].get('thumbnail_size', '350')}]{raw_url}[/img][/url] "
+                        )
+                        if screensPerRow and (img_index + 1) % screensPerRow == 0:
+                            menu_parts.append("\n")
+                    menu_parts.append("[/center]\n\n")
+                    menu_image_section = "".join(menu_parts)
+        except Exception as e:
+            console.print(f"[yellow]Warning: Error processing disc menu section: {str(e)}[/yellow]")
+
+        return menu_image_section

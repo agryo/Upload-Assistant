@@ -16,7 +16,6 @@ from src.cookie_auth import CookieValidator
 from src.get_desc import DescriptionBuilder
 from src.languages import process_desc_language
 from src.trackers.COMMON import COMMON
-from tqdm.asyncio import tqdm
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -251,6 +250,8 @@ class AZTrackerBase:
         else:
             resolution = 'all'
 
+        rip_type = self.get_rip_type(meta, display_name=True)
+
         page_url = f'{self.base_url}/movies/torrents/{self.media_code}?quality={resolution}'
 
         duplicates = []
@@ -273,6 +274,11 @@ class AZTrackerBase:
                 torrent_rows = torrent_table.find('tbody').find_all('tr', recursive=False)
 
                 for row in torrent_rows:
+                    badges = [b.get_text(strip=True) for b in row.find_all('span', class_='badge-extra')]
+
+                    if rip_type and rip_type not in badges:
+                        continue
+
                     name_tag = row.find('a', class_='torrent-filename')
                     name = name_tag.get_text(strip=True) if name_tag else ''
 
@@ -454,44 +460,53 @@ class AZTrackerBase:
 
         limit = 3 if meta.get('tv_pack', '') == 0 else 15
 
-        if local_files:
-            async def upload_local_file(path):
-                with open(path, 'rb') as f:
-                    image_bytes = f.read()
-                return await self.img_host(meta, self.tracker, image_bytes, path.name)
+        disc_menu_links = [
+            img.get('raw_url')
+            for img in meta.get('menu_images', [])
+            if img.get('raw_url')
+        ][:12]  # minimum number of screenshots is 3, so we can allow up to 12 menu images
 
-            paths = local_files[:limit] if limit else local_files
+        async def upload_local_file(path):
+            with open(path, 'rb') as f:
+                image_bytes = f.read()
+            return await self.img_host(meta, self.tracker, image_bytes, path.name)
 
-            for path in tqdm(
-                paths,
-                total=len(paths),
-                desc=f'{self.tracker}: Uploading screenshots'
-            ):
+        async def upload_remote_file(url):
+            try:
+                response = await self.session.get(url)
+                response.raise_for_status()
+                image_bytes = response.content
+                filename = os.path.basename(urlparse(url).path) or 'screenshot.png'
+                return await self.img_host(meta, self.tracker, image_bytes, filename)
+            except Exception as e:
+                print(f'Failed to process screenshot from URL {url}: {e}')
+                return None
+
+        # Upload menu images
+        for url in disc_menu_links:
+            if not url.lower().endswith('.png'):
+                console.print(f"{self.tracker}: Skipping non-PNG menu image: {url}")
+            else:
+                result = await upload_remote_file(url)
+                if result:
+                    results.append(result)
+
+        remaining_slots = max(0, limit - len(results))
+
+        if local_files and remaining_slots > 0:
+            paths = local_files[:remaining_slots]
+
+            for path in paths:
                 result = await upload_local_file(path)
                 if result:
                     results.append(result)
 
         else:
             image_links = [img.get('raw_url') for img in meta.get('image_list', []) if img.get('raw_url')]
+            remaining_slots = max(0, limit - len(results))
+            links = image_links[:remaining_slots]
 
-            async def upload_remote_file(url):
-                try:
-                    response = await self.session.get(url)
-                    response.raise_for_status()
-                    image_bytes = response.content
-                    filename = os.path.basename(urlparse(url).path) or 'screenshot.png'
-                    return await self.img_host(meta, self.tracker, image_bytes, filename)
-                except Exception as e:
-                    print(f'Failed to process screenshot from URL {url}: {e}')
-                    return None
-
-            links = image_links[:limit] if limit else image_links
-
-            for url in tqdm(
-                links,
-                total=len(links),
-                desc=f'{self.tracker}: Uploading screenshots'
-            ):
+            for url in links:
                 result = await upload_remote_file(url)
                 if result:
                     results.append(result)
@@ -625,6 +640,9 @@ class AZTrackerBase:
         # User description
         desc_parts.append(await builder.get_user_description(meta))
 
+        # Tonemapped Header
+        desc_parts.append(await builder.get_tonemapped_header(meta, self.tracker))
+
         description = '\n\n'.join(part for part in desc_parts if part.strip())
 
         if not description:
@@ -678,7 +696,7 @@ class AZTrackerBase:
 
         if not meta.get('debug', False):
             try:
-                await self.common.edit_torrent(meta, self.tracker, self.source_flag, announce_url=default_announce)
+                await self.common.create_torrent_for_upload(meta, self.tracker, self.source_flag, announce_url=default_announce)
                 upload_url_step1 = f"{self.base_url}/upload/{meta['category'].lower()}"
                 torrent_path = f"{meta['base_dir']}/tmp/{meta['uuid']}/[{self.tracker}].torrent"
 
@@ -797,41 +815,71 @@ class AZTrackerBase:
 
         return re.sub(r'\s{2,}', ' ', upload_name)
 
-    def get_rip_type(self, meta):
-        source_type = str(meta.get('type', '') or '').strip().lower()
-        source = str(meta.get('source', '') or '').strip().lower()
-        is_disc = str(meta.get('is_disc', '') or '').strip().upper()
-
-        if is_disc == 'BDMV':
-            return '15'
-        if is_disc == 'HDDVD':
-            return '4'
-        if is_disc == 'DVD':
-            return '4'
-
-        if source_type == 'remux':
-            if 'dvd' in source:
-                return '17'
-            if source in ('bluray', 'blu-ray'):
-                return '14'
-
-        keyword_map = {
-            'bdrip': '1',
-            'brrip': '3',
-            'encode': '2',
-            'dvdrip': '5',
-            'hdrip': '6',
-            'hdtv': '7',
-            'sdtv': '16',
-            'vcd': '8',
-            'vcdrip': '9',
-            'vhsrip': '10',
-            'vodrip': '11',
-            'webdl': '12',
-            'webrip': '13',
+    def get_rip_type(self, meta, display_name=False):
+        # Translation from meta keywords to site display labels
+        translation = {
+            "bdrip": "BDRip",
+            "brrip": "BRRip",
+            "encode": "BluRay",
+            "dvdrip": "DVDRip",
+            "hdrip": "HDRip",
+            "hdtv": "HDTV",
+            "sdtv": "SDTV",
+            "vcd": "VCD",
+            "vcdrip": "VCDRip",
+            "vhsrip": "VHSRip",
+            "vodrip": "VODRip",
+            "webdl": "WEB-DL",
+            "webrip": "WEBRip",
         }
 
-        return keyword_map.get(source_type.lower())
+        # Available rip types from HTML
+        available_rip_types = {
+            "BDRip": "1",
+            "BluRay": "2",
+            "BRRip": "3",
+            "DVD": "4",
+            "DVDRip": "5",
+            "HDRip": "6",
+            "HDTV": "7",
+            "VCD": "8",
+            "VCDRip": "9",
+            "VHSRip": "10",
+            "VODRip": "11",
+            "WEB-DL": "12",
+            "WEBRip": "13",
+            "BluRay REMUX": "14",
+            "BluRay Raw": "15",
+            "SDTV": "16",
+            "DVD Remux": "17",
+        }
+
+        source_type = str(meta.get("type", "") or "").strip().lower()
+        source = str(meta.get("source", "") or "").strip().lower()
+        is_disc = str(meta.get("is_disc", "") or "").strip().lower()
+
+        html_label = ""
+
+        if source_type == 'disc':
+            if is_disc == "bdmv":
+                html_label = "BluRay Raw"
+            elif is_disc in ("dvd", "hddvd"):
+                html_label = "DVD"
+
+        elif source_type == "remux":
+            if "dvd" in source:
+                html_label = "DVD Remux"
+            elif source in ("bluray", "blu-ray"):
+                html_label = "BluRay REMUX"
+            else:
+                return None
+        else:
+            html_label = translation.get(source_type)
+
+        if display_name:
+            return html_label
+
+        return available_rip_types.get(html_label)
 
     async def fetch_data(self, meta):
         cookie_jar = await self.cookie_validator.load_session_cookies(meta, self.tracker)
@@ -920,7 +968,7 @@ class AZTrackerBase:
                         meta['tracker_status'][self.tracker]['status_message'] = status_message
                         return
 
-                    await self.common.add_tracker_torrent(meta, self.tracker, self.source_flag, self.announce_url, torrent_url)
+                    await self.common.create_torrent_ready_to_seed(meta, self.tracker, self.source_flag, self.announce_url, torrent_url)
 
                     status_message = 'Torrent uploaded successfully.'
 

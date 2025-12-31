@@ -34,7 +34,7 @@ class RTF():
 
     async def upload(self, meta, disctype):
         common = COMMON(config=self.config)
-        await common.edit_torrent(meta, self.tracker, self.source_flag)
+        await common.create_torrent_for_upload(meta, self.tracker, self.source_flag)
         await DescriptionBuilder(self.config).unit3d_edit_desc(meta, self.tracker, self.forum_link)
         if meta['bdinfo'] is not None:
             mi_dump = None
@@ -89,9 +89,9 @@ class RTF():
 
                         t_id = response_json['torrent']['id']
                         meta['tracker_status'][self.tracker]['torrent_id'] = t_id
-                        await common.add_tracker_torrent(meta, self.tracker, self.source_flag,
-                                                         self.config['TRACKERS'][self.tracker].get('announce_url'),
-                                                         "https://retroflix.club/browse/t/" + str(t_id))
+                        await common.create_torrent_ready_to_seed(meta, self.tracker, self.source_flag,
+                                                                  self.config['TRACKERS'][self.tracker].get('announce_url'),
+                                                                  "https://retroflix.club/browse/t/" + str(t_id))
 
                     except Exception:
                         console.print("It may have uploaded, go check")
@@ -169,17 +169,32 @@ class RTF():
         else:
             params['search'] = meta['title'].replace(':', '').replace("'", '').replace(",", '')
 
+        def build_download_url(entry):
+            torrent_id = entry.get('id')
+            torrent_url = entry.get('url', '')
+            if not torrent_id and isinstance(torrent_url, str):
+                match = re.search(r"/browse/t/(\d+)", torrent_url)
+                if match:
+                    torrent_id = match.group(1)
+
+            if torrent_id:
+                return f"https://retroflix.club/api/torrent/{torrent_id}/download"
+
+            return torrent_url
+
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 response = await client.get(self.search_url, params=params, headers=headers)
                 if response.status_code == 200:
                     data = response.json()
                     for each in data:
+                        download_url = build_download_url(each)
                         result = {
                             'name': each['name'],
                             'size': each['size'],
                             'files': each['name'],
                             'link': each['url'],
+                            'download': download_url,
                         }
                         dupes.append(result)
                 else:
