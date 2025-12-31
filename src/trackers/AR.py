@@ -285,6 +285,7 @@ class AR():
                             'files': res['groupName'],
                             'file_count': res['fileCount'],
                             'link': f'{self.search_url}?id={res["groupId"]}&torrentid={res["torrentId"]}',
+                            'download': f'{self.base_url}/torrents.php?action=download&id={res["torrentId"]}',
                         }
                         dupes.append(dupe)
 
@@ -342,7 +343,7 @@ class AR():
         """Upload torrent to AR using centralized cookie_upload."""
         # Prepare the data for the upload
         common = COMMON(config=self.config)
-        await common.edit_torrent(meta, self.tracker, self.source_flag)
+        await common.create_torrent_for_upload(meta, self.tracker, self.source_flag)
         await self.edit_desc(meta)
         type_id = await self.get_type(meta)
 

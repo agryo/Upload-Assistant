@@ -97,6 +97,8 @@ async def process_all_trackers(meta):
 
                 if tracker_name not in {"PTP"} and not local_tracker_status['skipped']:
                     dupes = await tracker_class.search_existing(local_meta, disctype)
+                    # set trackers here so that they are not double checked later with cross seeding
+                    meta.setdefault('dupe_checked_trackers', []).append(tracker_name)
                     if local_meta['tracker_status'][tracker_name].get('other', False):
                         local_tracker_status['other'] = True
                 elif tracker_name == "PTP":
@@ -118,6 +120,9 @@ async def process_all_trackers(meta):
 
                     if tracker_name == "AITHER" and 'aither_trumpable' in local_meta:
                         meta['aither_trumpable'] = local_meta['aither_trumpable']
+
+                    if f'{tracker_name}_cross_seed' in local_meta:
+                        meta[f'{tracker_name}_cross_seed'] = local_meta[f'{tracker_name}_cross_seed']
 
                 elif 'skipping' in local_meta:
                     local_tracker_status['skipped'] = True
@@ -167,7 +172,7 @@ async def process_all_trackers(meta):
                             elif isinstance(tracker_rename, str):
                                 display_name = tracker_rename
 
-                        if display_name is not None and display_name != "" and display_name != meta['name']:
+                        if display_name is not None and display_name != "" and display_name != meta['name'] and not meta.get('cross_seeding', False):
                             console.print(f"[bold yellow]{tracker_name} applies a naming change for this release: [green]{display_name}[/green][/bold yellow]")
                         try:
                             edit_choice = "y" if local_meta['unattended'] else input("Enter 'y' to upload, or press enter to skip uploading:")

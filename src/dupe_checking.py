@@ -1,6 +1,8 @@
 # Upload Assistant © 2025 Audionut & wastaken7 — Licensed under UAPL v1.0
 import os
 import re
+
+from cogs.redaction import redact_private_info
 from data.config import config
 from src.console import console
 from src.trackers.HUNO import HUNO
@@ -13,13 +15,27 @@ async def filter_dupes(dupes, meta, tracker_name):
     """
     if meta['debug']:
         console.log(f"[cyan]Pre-filtered dupes from {tracker_name}")
-        console.log(dupes)
+        # Limit dupe output for readability
+        if len(dupes) > 0:
+            dupes_to_print = []
+            for dupe in dupes:
+                if isinstance(dupe, dict) and 'files' in dupe and isinstance(dupe['files'], list):
+                    # Limit files list to first 10 items
+                    limited_dupe = redact_private_info(dupe).copy()
+                    if len(limited_dupe['files']) > 10:
+                        limited_dupe['files'] = limited_dupe['files'][:10] + [f"... and {len(dupe['files']) - 10} more files"]
+                    dupes_to_print.append(limited_dupe)
+                else:
+                    dupes_to_print.append(redact_private_info(dupe))
+            console.log(dupes_to_print)
+        else:
+            console.log(dupes)
     meta['trumpable'] = False
     processed_dupes = []
     for d in dupes:
         if isinstance(d, str):
             # Case 1: Simple string (just name)
-            processed_dupes.append({'name': d, 'size': None, 'files': [], 'file_count': 0, 'trumpable': False, 'link': None})
+            processed_dupes.append({'name': d, 'size': None, 'files': [], 'file_count': 0, 'trumpable': False, 'link': None, 'download': None, 'flags': []})
         elif isinstance(d, dict):
             # Create a base entry with default values
             entry = {
@@ -28,7 +44,9 @@ async def filter_dupes(dupes, meta, tracker_name):
                 'files': [],
                 'file_count': 0,
                 'trumpable': d.get('trumpable', False),
-                'link': d.get('link', None)
+                'link': d.get('link', None),
+                'download': d.get('download', None),
+                'flags': d.get('flags', [])
             }
 
             # Case 3: Dict with files and file_count
@@ -38,8 +56,11 @@ async def filter_dupes(dupes, meta, tracker_name):
                 elif isinstance(d['files'], str) and d['files']:
                     entry['files'] = [d['files']]
                 entry['file_count'] = len(entry['files'])
-            elif 'file_count' in d:
-                entry['file_count'] = d['file_count']
+            if 'file_count' in d:
+                try:
+                    entry['file_count'] = int(d['file_count'])
+                except (ValueError, TypeError):
+                    entry['file_count'] = 0
 
             processed_dupes.append(entry)
 
@@ -74,14 +95,10 @@ async def filter_dupes(dupes, meta, tracker_name):
                 # Extract just the filename without the path
                 filename = os.path.basename(file_path)
                 filenames.append(filename)
+            if meta['debug']:
+                console.log(f"dupe checking filenames: {filenames[:10]}{'...' if len(filenames) > 10 else ''}")
 
     attribute_checks = [
-        {
-            "key": "repack",
-            "uuid_flag": has_repack_in_uuid,
-            "condition": lambda each: meta['tag'].lower() in each and has_repack_in_uuid and "repack" not in each.lower(),
-            "exclude_msg": lambda each: f"Excluding result because it lacks 'repack' and matches tag '{meta['tag']}': {each}"
-        },
         {
             "key": "remux",
             "uuid_flag": "remux" in meta.get('name', '').lower(),
@@ -108,9 +125,29 @@ async def filter_dupes(dupes, meta, tracker_name):
         each = entry.get('name', '')
         sized = entry.get('size')  # This may come as a string, such as "1.5 GB"
         files = entry.get('files', [])
+        # Handle case where files might be comma-separated strings in a list
+        if files and isinstance(files, list) and len(files) == 1 and ',' in str(files[0]):
+            # Split comma-separated string into individual filenames
+            files = [f.strip() for f in str(files[0]).split(',')]
         file_count = entry.get('file_count', 0)
         normalized = await normalize_filename(each)
-        file_hdr = await refine_hdr_terms(normalized)
+
+        # Use flags field if available for more accurate HDR detection
+        flags = entry.get('flags', [])
+        if flags:
+            # If flags are provided, use them directly for HDR information
+            file_hdr = set()
+            for flag in flags:
+                flag_upper = str(flag).upper()
+                if flag_upper == 'DV':
+                    file_hdr.add('DV')
+                elif flag_upper in ['HDR', 'HDR10', 'HDR10+']:
+                    file_hdr.add('HDR')
+            if meta['debug']:
+                console.log(f"[debug] Using flags for HDR detection: {flags} -> {file_hdr}")
+        else:
+            # Fall back to parsing filename for HDR terms
+            file_hdr = await refine_hdr_terms(normalized)
 
         if meta['debug']:
             console.log(f"[debug] Evaluating dupe: {each}")
@@ -118,6 +155,7 @@ async def filter_dupes(dupes, meta, tracker_name):
             console.log(f"[debug] Target resolution: {target_resolution}")
             console.log(f"[debug] Target source: {target_source}")
             console.log(f"[debug] File HDR terms: {file_hdr}")
+            console.log(f"[debug] Flags: {flags}")
             console.log(f"[debug] Target HDR terms: {target_hdr}")
             console.log(f"[debug] Target Season: {target_season}")
             console.log(f"[debug] Target Episode: {target_episode}")
@@ -128,24 +166,101 @@ async def filter_dupes(dupes, meta, tracker_name):
             console.log(f"[debug] meta['uuid']: {meta.get('uuid', '')}")
             console.log(f"[debug] normalized encoder: {normalized_encoder}")
             console.log(f"[debug] link: {entry.get('link', None)}")
-            console.log(f"[debug] files: {files}")
+            console.log(f"[debug] files: {files[:10]}{'...' if len(files) > 10 else ''}")
             console.log(f"[debug] file_count: {file_count}")
+
+        def remember_match(reason):
+            """Persist details about the dupe that triggered a match for later use."""
+            matched_name_key = f"{tracker_name}_matched_name"
+            matched_link_key = f"{tracker_name}_matched_link"
+            matched_download_key = f"{tracker_name}_matched_download"
+            matched_reason_key = f"{tracker_name}_matched_reason"
+            matched_count_key = f"{tracker_name}_matched_file_count"
+
+            meta[matched_name_key] = entry.get('name')
+            if entry.get('link'):
+                meta[matched_link_key] = entry.get('link')
+            if entry.get('download'):
+                meta[matched_download_key] = entry.get('download')
+            meta[matched_reason_key] = reason
+            if file_count:
+                meta[matched_count_key] = file_count
 
         if not meta.get('is_disc'):
             for file in filenames:
                 if tracker_name in ["MTV", "AR", "RTF"]:
                     # MTV: check if any dupe file is a substring of our file (ignoring extension)
-                    if any(f in file for f in files):
+                    if any(f.lower() in file.lower() for f in files):
                         meta['filename_match'] = f"{entry.get('name')} = {entry.get('link', None)}"
+                        remember_match('filename')
                         if file_count and file_count > 0 and file_count == len(meta.get('filelist', [])):
                             meta['file_count_match'] = file_count
+                            remember_match('file_count')
                             return False
+                    entry_size = entry.get('size')
+                    source_size = meta.get('source_size')
+                    if entry_size is not None and source_size is not None:
+                        try:
+                            if int(entry_size) == int(source_size):
+                                meta['size_match'] = f"{entry.get('name')} = {entry.get('link', None)}"
+                                remember_match('size')
+                                return False
+                        except ValueError:
+                            if meta['debug']:
+                                console.log(f"[debug] Size comparison failed due to ValueError: entry_size={entry_size}, source_size={source_size}")
                 else:
-                    if file in files:
+                    if meta['debug']:
+                        console.log(f"[debug] Comparing file: {file} against dupe files list.")
+                        console.log(f"[debug] Dupe files list: {files[:10]}{'...' if len(files) > 10 else files}")
+                    if any(file.lower() == f.lower() for f in files):
                         meta['filename_match'] = f"{entry.get('name')} = {entry.get('link', None)}"
+                        if meta['debug']:
+                            console.log(f"[debug] Filename match found: {meta['filename_match']}")
+                        remember_match('filename')
                         if file_count and file_count > 0 and file_count == len(meta.get('filelist', [])):
                             meta['file_count_match'] = file_count
+                            if meta['debug']:
+                                console.log(f"[debug] File count match found: {meta['file_count_match']}")
+                            remember_match('file_count')
                             return False
+            if tracker_name in ["BHD"]:
+                # BHD: compare sizes
+                entry_size = entry.get('size')
+                source_size = meta.get('source_size')
+                if entry_size is not None and source_size is not None:
+                    if meta['debug']:
+                        console.log(f"[debug] Comparing sizes: Entry size {entry_size} vs Source size {source_size}")
+                    try:
+                        if int(entry_size) == int(source_size):
+                            meta['size_match'] = f"{entry.get('name')} = {entry.get('link', None)}"
+                            remember_match('size')
+                            return False
+                    except ValueError:
+                        if meta['debug']:
+                            console.log(f"[debug] Size comparison failed due to ValueError: entry_size={entry_size}, source_size={source_size}")
+
+        else:
+            entry_size = entry.get('size')
+            source_size = meta.get('source_size')
+            if entry_size is not None and source_size is not None:
+                if meta['debug']:
+                    console.log(f"[debug] Comparing sizes: Entry size {entry_size} vs Source size {source_size}")
+                try:
+                    if int(entry_size) == int(source_size):
+                        meta['size_match'] = f"{entry.get('name')} = {entry.get('link', None)}"
+                        remember_match('size')
+                        return False
+                except ValueError:
+                    if meta['debug']:
+                        console.log(f"[debug] Size comparison failed due to ValueError: entry_size={entry_size}, source_size={source_size}")
+
+        if meta['is_disc'] and file_count and file_count < 2:
+            await log_exclusion("file count less than 2 for disc upload", each)
+            return True
+
+        if has_repack_in_uuid and "repack" not in normalized and meta.get('tag', '').lower() in normalized:
+            await log_exclusion('repack release', each)
+            return True
 
         if tracker_name == "MTV":
             target_name = meta.get('name').replace(' ', '.').replace('DD+', 'DDP')
@@ -217,8 +332,15 @@ async def filter_dupes(dupes, meta, tracker_name):
             return True
 
         if web_dl:
-            if "hdtv" in normalized and not any(web_term in normalized for web_term in ["web-dl", "webdl", "web dl"]):
+            if "hdtv" in normalized and not any(web_term in normalized for web_term in ["web-dl", "web -dl", "webdl", "web dl"]):
                 await log_exclusion("source mismatch: WEB-DL vs HDTV", each)
+                return True
+            if any(term in normalized for term in ['blu-ray', 'blu ray', 'bluray', 'blu -ray']) and not any(web_term in normalized for web_term in ["web-dl", "web -dl", "webdl", "web dl"]):
+                await log_exclusion("source mismatch: WEB-DL vs BluRay", each)
+                return True
+        if not web_dl:
+            if any(web_term in normalized for web_term in ["web-dl", "web -dl", "webdl", "web dl"]):
+                await log_exclusion("source mismatch: non-WEB-DL vs WEB-DL", each)
                 return True
 
         if is_dvd or "DVD" in target_source or is_dvdrip:
@@ -246,8 +368,19 @@ async def filter_dupes(dupes, meta, tracker_name):
                         await log_exclusion("missing 'repack'", each)
                         return True
             elif check["key"] == "remux":
-                if check["uuid_flag"] and not check["condition"](normalized):
+                # Bidirectional check: if your upload is a REMUX, dupe must be REMUX
+                # If your upload is NOT a REMUX (i.e., an encode), dupe must NOT be a REMUX
+                uuid_has_remux = check["uuid_flag"]
+                dupe_has_remux = check["condition"](normalized)
+
+                if meta['debug']:
+                    console.log(f"[debug] Remux check: uuid_has_remux={uuid_has_remux}, dupe_has_remux={dupe_has_remux}")
+
+                if uuid_has_remux and not dupe_has_remux:
                     await log_exclusion("missing 'remux'", each)
+                    return True
+                elif not uuid_has_remux and dupe_has_remux:
+                    await log_exclusion("dupe is remux but upload is not", each)
                     return True
 
         if meta.get('category') == "TV":
@@ -259,7 +392,7 @@ async def filter_dupes(dupes, meta, tracker_name):
                 return True
 
         if is_hdtv:
-            if any(web_term in normalized for web_term in ["web-dl", "webdl", "web dl"]):
+            if any(web_term in normalized for web_term in ["web-dl", "web -dl", "webdl", "web dl"]):
                 return False
 
         if len(dupes) == 1 and meta.get('is_disc') != "BDMV":
@@ -291,7 +424,18 @@ async def filter_dupes(dupes, meta, tracker_name):
             new_dupes.append(each)
 
     if new_dupes and not meta.get('unattended', False) and meta['debug']:
-        console.log(f"[yellow]Filtered dupes on {tracker_name}: {new_dupes}")
+        # Limit filtered dupe output for readability
+        filtered_dupes_to_print = []
+        for dupe in new_dupes:
+            if isinstance(dupe, dict) and 'files' in dupe and isinstance(dupe['files'], list):
+                # Limit files list to first 10 items
+                limited_dupe = redact_private_info(dupe).copy()
+                if len(limited_dupe['files']) > 10:
+                    limited_dupe['files'] = limited_dupe['files'][:10] + [f"... and {len(dupe['files']) - 10} more files"]
+                filtered_dupes_to_print.append(limited_dupe)
+            else:
+                filtered_dupes_to_print.append(redact_private_info(dupe))
+        console.log(f"[yellow]Filtered dupes on {tracker_name}: {filtered_dupes_to_print}")
 
     return new_dupes
 

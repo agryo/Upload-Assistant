@@ -330,6 +330,43 @@ class Prep():
                 console.print(f"[red]Error processing Mediainfo: {e}[/red]")
                 raise Exception(f"Error processing Mediainfo: {e}")
 
+        source_size = 0
+        if not meta['is_disc']:
+            # Sum every non-disc file so downstream steps know the total payload size
+            filelist = meta.get('filelist') or []
+            files_to_measure = filelist if filelist else [videopath]
+            for file_path in files_to_measure:
+                if not os.path.isfile(file_path):
+                    if meta.get('debug'):
+                        console.print(f"[yellow]Skipping size check for missing file: {file_path}")
+                    continue
+                try:
+                    source_size += os.path.getsize(file_path)
+                except OSError as exc:
+                    if meta.get('debug'):
+                        console.print(f"[yellow]Unable to stat {file_path}: {exc}")
+
+        else:
+            # Disc structures can span many files; walk the tree rooted at meta['path']
+            disc_root = meta.get('path')
+            if disc_root and os.path.exists(disc_root):
+                for root, _, files in os.walk(disc_root):
+                    for filename in files:
+                        file_path = os.path.join(root, filename)
+                        try:
+                            source_size += os.path.getsize(file_path)
+                        except OSError as exc:
+                            if meta.get('debug'):
+                                console.print(f"[yellow]Unable to stat {file_path}: {exc}")
+                            continue
+            else:
+                if meta.get('debug'):
+                    console.print(f"[yellow]Disc path missing, source size set to 0: {disc_root}")
+
+        meta['source_size'] = source_size
+        if meta['debug']:
+            console.print(f"[cyan]Calculated source size: {meta['source_size']} bytes")
+
         if " AKA " in filename.replace('.', ' '):
             filename = filename.split('AKA')[0]
         meta['filename'] = filename
@@ -803,10 +840,19 @@ class Prep():
         if not meta.get('not_anime', False) and meta.get('category') == "TV":
             meta = await get_season_episode(video, meta)
 
-        if meta['category'] == "TV":
+        # lets check for tv movies
+        meta['tv_movie'] = False
+        is_tv_movie = meta.get('imdb_info', None).get('type', '')
+        tv_movie_keywords = ['tv movie', 'tv special', 'video', 'tvmovie']
+        if any(re.search(rf'(^|,\s*){re.escape(keyword)}(\s*,|$)', is_tv_movie, re.IGNORECASE) for keyword in tv_movie_keywords):
+            if meta['debug']:
+                console.print(f"[yellow]Identified as TV Movie based on IMDb type: {is_tv_movie}[/yellow]")
+            meta['tv_movie'] = True
+
+        if meta['category'] == "TV" or meta.get('tv_movie', False):
             both_ids_searched = False
             if meta.get('tvmaze_id', 0) == 0 and meta.get('tvdb_id', 0) == 0:
-                tvmaze, tvdb, tvdb_data = await get_tvmaze_tvdb(filename, meta['search_year'], meta.get('imdb_id', 0), meta.get('tmdb_id', 0), meta.get('manual_data'), meta.get('tvmaze_manual', 0), year=meta.get('year', ''), debug=meta.get('debug', False))
+                tvmaze, tvdb, tvdb_data = await get_tvmaze_tvdb(filename, meta['search_year'], meta.get('imdb_id', 0), meta.get('tmdb_id', 0), meta.get('manual_data'), meta.get('tvmaze_manual', 0), year=meta.get('year', ''), debug=meta.get('debug', False), tv_movie=meta.get('tv_movie', False))
                 both_ids_searched = True
                 if tvmaze:
                     meta['tvmaze_id'] = tvmaze
@@ -884,7 +930,7 @@ class Prep():
                                         else:
                                             meta['aka'] = ""
 
-            if meta.get('tvdb_series_name'):
+            if meta.get('tvdb_series_name') and meta['category'] == "TV":
                 series_name = meta.get('tvdb_series_name')
                 if series_name and meta.get('title') != series_name:
                     if meta['debug']:

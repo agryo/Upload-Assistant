@@ -57,21 +57,28 @@ class DC:
         desc_parts.append(await builder.get_user_description(meta))
 
         # Screenshots
-        if f'{self.tracker}_images_key' in meta:
-            images = meta[f'{self.tracker}_images_key']
+        all_images = []
+
+        menu_images = meta.get("menu_images", [])
+        if menu_images:
+            all_images.extend(menu_images)
+
+        if f"{self.tracker}_images_key" in meta:
+            images = meta.get(f"{self.tracker}_images_key")
         else:
-            images = meta['image_list']
+            images = meta.get("image_list")
         if images:
-            screenshots_block = '[center]\n'
-            for i, image in enumerate(images, start=1):
-                screenshots_block += (
-                    f"[url={image['web_url']}][img=350]{image['raw_url']}[/img][/url] "
-                )
-                # limits to 2 screens per line, as the description box is small
-                if i % 2 == 0:
-                    screenshots_block += '\n'
-            screenshots_block += '\n[/center]'
-            desc_parts.append(screenshots_block)
+            all_images.extend(images)
+
+        if all_images:
+            screenshots_block = ""
+            for image in all_images:
+                web_url = image.get("web_url")
+                raw_url = image.get("raw_url")
+                if web_url and raw_url:
+                    screenshots_block += f"[url={web_url}][img=350]{raw_url}[/img][/url] "
+            if screenshots_block:
+                desc_parts.append(f"[center]{screenshots_block}[/center]")
 
         # Tonemapped Header
         desc_parts.append(await builder.get_tonemapped_header(meta, self.tracker))
@@ -100,7 +107,6 @@ class DC:
         description = description.replace('[*] ', '• ').replace('[*]', '• ')
         description = bbcode.convert_named_spoiler_to_normal_spoiler(description)
         description = bbcode.convert_comparison_to_centered(description, 1000)
-        description = bbcode.remove_list(description)
         description = description.strip()
         description = bbcode.remove_extra_lines(description)
 
@@ -145,6 +151,7 @@ class DC:
 
     async def search_existing(self, meta, disctype):
         imdb_id = meta.get('imdb_info', {}).get('imdbID')
+        category_id = await self.get_category_id(meta)
         if not imdb_id:
             console.print(f'[bold yellow]Cannot perform search on {self.tracker}: IMDb ID not found in metadata.[/bold yellow]')
             return []
@@ -160,16 +167,17 @@ class DC:
                 search_results = response.json()
                 if search_results and isinstance(search_results, list):
                     for each in search_results:
-                        name = each.get('name')
-                        torrent_id = each.get('id')
-                        size = each.get('size')
-                        torrent_link = f'{self.torrent_url}{torrent_id}/' if torrent_id else None
-                        dupe_entry = {
-                            'name': name,
-                            'size': size,
-                            'link': torrent_link
-                        }
-                        dupes.append(dupe_entry)
+                        if each.get('category') == category_id:
+                            name = each.get('name')
+                            torrent_id = each.get('id')
+                            size = each.get('size')
+                            torrent_link = f'{self.torrent_url}{torrent_id}/' if torrent_id else None
+                            dupe_entry = {
+                                'name': name,
+                                'size': size,
+                                'link': torrent_link
+                            }
+                            dupes.append(dupe_entry)
 
                     return dupes
 
@@ -235,7 +243,8 @@ class DC:
         if not meta.get('debug', False):
             try:
                 upload_url = f'{self.api_base_url}/upload'
-                torrent_path = f"{meta['base_dir']}/tmp/{meta['uuid']}/BASE.torrent"
+                await self.common.create_torrent_for_upload(meta, self.tracker, 'DigitalCore.club')
+                torrent_path = f"{meta['base_dir']}/tmp/{meta['uuid']}/[{self.tracker}].torrent"
 
                 with open(torrent_path, 'rb') as torrent_file:
                     files = {'file': (torrent_title + '.torrent', torrent_file, 'application/x-bittorrent')}
@@ -249,12 +258,9 @@ class DC:
                         meta['tracker_status'][self.tracker]['torrent_id'] = torrent_id + '/'
                         status_message = response_data.get('message')
 
-                        await self.common.add_tracker_torrent(
+                        await self.common.download_tracker_torrent(
                             meta,
-                            tracker=self.tracker,
-                            source_flag=None,
-                            new_tracker=None,
-                            comment=None,
+                            self.tracker,
                             headers=self.session.headers,
                             downurl=f'{self.api_base_url}/download/{torrent_id}'
                         )

@@ -205,6 +205,20 @@ class GPW():
         # User description
         desc_parts.append(await builder.get_user_description(meta))
 
+        # Disc menus screenshots header
+        desc_parts.append(await builder.menu_screenshot_header(meta, self.tracker))
+
+        # Disc menus screenshots
+        if f'{self.tracker}_menu_images_key' in meta:
+            menu_images = meta.get(f'{self.tracker}_menu_images_key', [])
+        else:
+            menu_images = meta.get('menu_images', [])
+        if menu_images:
+            menu_screenshots_block = ''
+            for image in menu_images:
+                menu_screenshots_block += f"[img]{image['raw_url']}[/img]\n"
+            desc_parts.append('[center]\n' + menu_screenshots_block + '[/center]')
+
         # Screenshot Header
         desc_parts.append(await builder.screenshot_header(self.tracker))
 
@@ -778,7 +792,7 @@ class GPW():
         return data
 
     async def upload(self, meta, disctype):
-        await self.common.edit_torrent(meta, self.tracker, self.source_flag)
+        await self.common.create_torrent_for_upload(meta, self.tracker, self.source_flag)
         data = await self.fetch_data(meta, disctype)
         status_message = ''
 
@@ -808,7 +822,7 @@ class GPW():
                     meta['tracker_status'][self.tracker]['status_message'] = f'data error: It may have uploaded, go check. Error: {e}.\nResponse: {response_data}'
                     return
 
-            await self.common.add_tracker_torrent(meta, self.tracker, self.source_flag, self.announce, self.torrent_url + torrent_id)
+            await self.common.create_torrent_ready_to_seed(meta, self.tracker, self.source_flag, self.announce, self.torrent_url + torrent_id)
 
         else:
             console.print(data)

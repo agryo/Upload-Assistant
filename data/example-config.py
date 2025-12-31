@@ -14,7 +14,7 @@ config = {
         "btn_api": "",
 
         # Order of image hosts. primary host as first with others as backup
-        # Available image hosts: imgbb, ptpimg, imgbox, pixhost, lensdump, ptscreens, onlyimage, dalexni, zipline, passtheimage
+        # Available image hosts: imgbb, ptpimg, imgbox, pixhost, lensdump, ptscreens, onlyimage, dalexni, zipline, passtheimage, seedpool_cdn
         "img_host_1": "",
         "img_host_2": "",
         "img_host_3": "",
@@ -32,6 +32,8 @@ config = {
         # custom zipline url
         "zipline_url": "",
         "zipline_api_key": "",
+        # Seedpool CDN API key
+        "seedpool_cdn_api": "",
 
         # Whether to add a logo for the show/movie from TMDB to the top of the description
         "add_logo": False,
@@ -145,6 +147,11 @@ config = {
         # Can be overridden in a per-tracker setting by adding this same config
         "screenshot_header": "",
 
+        # Applicable only to raw discs (Blu-ray/DVD).
+        # Providing the option to add a header, in bbcode, above the section featuring screenshots of the Disc menus, where supported
+        # Can be overridden in a per-tracker setting by adding this same config
+        "disc_menu_header": "",
+
         # Allows adding a custom signature, in BBCode, at the bottom of the description section
         # Can be overridden in a per-tracker setting by adding this same config
         "custom_signature": "",
@@ -153,13 +160,13 @@ config = {
         "default_torrent_client": "qbittorrent",
 
         # A list of clients to use for injection (aka actually adding the torrent for uploading)
-        # eg: ['qbittorrent', 'rtorrent']
-        "injecting_client_list": [''],
+        # eg: ["qbittorrent", "rtorrent"]
+        "injecting_client_list": [""],
 
         # A list of clients to search for torrents.
-        # eg: ['qbittorrent', 'qbittorrent_searching']
+        # eg: ["qbittorrent", "qbittorrent_searching"]
         # will fallback to default_torrent_client if empty
-        "searching_client_list": [''],
+        "searching_client_list": [""],
 
         # set true to skip automated client torrent searching
         # this will search qbittorrent clients for matching torrents
@@ -255,6 +262,10 @@ config = {
         # set true to not delete existing meta.json file before running
         "keep_meta": False,
 
+        # Whether or not to print how long the upload process took for each tracker
+        # Useful for knowing which trackers are slowing down the overall upload process
+        "show_upload_duration": True,
+
         # Set true to print the tracker api messages from uploads
         "print_tracker_messages": False,
 
@@ -280,6 +291,12 @@ config = {
         # Set true to prefer torrents with piece size <= 16 MiB when searching for existing torrents in clients
         # Does not override MTV preference for small pieces
         "prefer_max_16_torrent": False,
+
+        # Set false to disable adding cross-seed suitable torrents found during existing search (dupe) checking
+        "cross_seeding": True,
+        # Set true to cross-seed check every valid tracker defined in your config
+        # regardless of whether the tracker was selected for upload or not (needs cross-seeding above to be True)
+        "cross_seed_check_everything": False,
 
     },
 
@@ -414,6 +431,10 @@ config = {
             "anon": False,
             # Send uploads to CBR modq for staff approval
             "modq": False,
+            # The tag that identifies you or your group when modifying an existing release.
+            # If set, the script will try to preserve the original group's name.
+            # Example: If set to "MyTag", a release might become: Movie 2003 1080p WEB-DL DDP5.1 H.264-OriginalGroup DUAL-MyTag
+            "tag_for_custom_release": "",
         },
         "CZ": {
             # Instead of using the tracker acronym for folder name when sym/hard linking, you can use a custom name
@@ -720,6 +741,10 @@ config = {
             "link_dir_name": "",
             "api_key": "",
             "anon": False,
+            # The tag that identifies you or your group when modifying an existing release.
+            # If set, the script will try to preserve the original group's name.
+            # Example: If set to "MyTag", a release might become: Movie 2003 1080p WEB-DL DDP5.1 H.264-OriginalGroup DUAL-MyTag
+            "tag_for_custom_release": "",
         },
         "SHRI": {
             # Instead of using the tracker acronym for folder name when sym/hard linking, you can use a custom name
@@ -884,6 +909,9 @@ config = {
             "use_tracker_as_tag": False,
             "qbit_tag": "",
             "qbit_cat": "",
+            # If using cross seeding, add cross seed tag/category here
+            "qbit_cross_tag": "",
+            "qbit_cross_cat": "",
             "content_layout": "Original",
             # here you can chose to use either symbolic or hard links, or None to use original path
             # this will disable any automatic torrent management if set
@@ -928,9 +956,19 @@ config = {
             # path/to/session folder
             "torrent_storage_dir": "",
             "rtorrent_label": "",
-            # here you can chose to use either symbolic or hard links, or leave uncommented to use original path
+            # here you can chose to use either symbolic or hard links, or None to use original path
+            # this will disable any automatic torrent management if set
             # use either "symlink" or "hardlink"
+            # on windows, symlinks needs admin privs, both link types need ntfs/refs filesytem (and same drive)
             "linking": "",
+            # Allow fallback to inject torrent into qBitTorrent using the original path
+            # when linking error. eg: unsupported file system.
+            "allow_fallback": True,
+            # A folder or list of folders that will contain the linked content
+            # if using hardlinking, the linked folder must be on the same drive/volume as the original content,
+            # with UA mapping the correct location if multiple paths are specified.
+            # Use local paths, remote path mapping will be handled.
+            # only single \ on windows, path will be handled by UA
             "linked_folder": [""],
             # Remote path mapping (docker/etc.) CASE SENSITIVE
             "local_path": [""],
