@@ -6,11 +6,11 @@ import os
 from pathlib import Path
 import json
 import glob
-import pickle
 import httpx
 from unidecode import unidecode
 from urllib.parse import urlparse
 from src.trackers.COMMON import COMMON
+from src.cookie_auth import CookieValidator
 from src.exceptions import *  # noqa E403
 from src.console import console
 
@@ -31,6 +31,14 @@ class PTER():
         self.signature = None
         self.banned_groups = [""]
 
+        self.cookie_validator = CookieValidator(config)
+
+    def _extract_auth_token(self, text: str, pattern: str) -> str:
+        match = re.search(pattern, text)
+        if match is None:
+            raise LoginException("Unable to locate auth token for Pterimg.")  # noqa: F405
+        return match.group(1)
+
     async def validate_credentials(self, meta):
         vcookie = await self.validate_cookies(meta)
         if vcookie is not True:
@@ -45,7 +53,7 @@ class PTER():
         if os.path.exists(cookiefile):
             with requests.Session() as session:
                 session.cookies.update(await common.parseCookieFile(cookiefile))
-                resp = session.get(url=url)
+                resp = session.get(url=url, timeout=30)
 
                 if resp.text.find("""<a href="#" data-url="logout.php" id="logout-confirm">""") != -1:
                     return True
@@ -97,16 +105,16 @@ class PTER():
         cat_id = "EXIT"
 
         if meta['category'] == 'MOVIE':
-            cat_id = 401
+            cat_id = '401'
 
         if meta['category'] == 'TV':
-            cat_id = 404
+            cat_id = '404'
 
         if 'documentary' in meta.get("genres", "").lower() or 'documentary' in meta.get("keywords", "").lower():
-            cat_id = 402
+            cat_id = '402'
 
-        if 'Animation' in meta.get("genres", "").lower() or 'Animation' in meta.get("keywords", "").lower():
-            cat_id = 403
+        if 'animation' in meta.get("genres", "").lower() or 'animation' in meta.get("keywords", "").lower():
+            cat_id = '403'
 
         return cat_id
 
@@ -130,28 +138,28 @@ class PTER():
         # 1 = UHD Discs
         if meta.get('is_disc', '') in ("BDMV", "HD DVD"):
             if meta['resolution'] == '2160p':
-                medium_id = 1
+                medium_id = '1'
             else:
-                medium_id = 2  # BD Discs
+                medium_id = '2'  # BD Discs
 
         if meta.get('is_disc', '') == "DVD":
-            medium_id = 7
+            medium_id = '7'
 
         # 4 = HDTV
         if meta.get('type', '') == "HDTV":
-            medium_id = 4
+            medium_id = '4'
 
         # 6 = Encode
         if meta.get('type', '') in ("ENCODE", "WEBRIP"):
-            medium_id = 6
+            medium_id = '6'
 
         # 3 = Remux
         if meta.get('type', '') == "REMUX":
-            medium_id = 3
+            medium_id = '3'
 
         # 5 = WEB-DL
         if meta.get('type', '') == "WEBDL":
-            medium_id = 5
+            medium_id = '5'
 
         return medium_id
 
@@ -219,32 +227,30 @@ class PTER():
     async def get_auth_token(self, meta):
         if not os.path.exists(f"{meta['base_dir']}/data/cookies"):
             Path(f"{meta['base_dir']}/data/cookies").mkdir(parents=True, exist_ok=True)
-        cookiefile = f"{meta['base_dir']}/data/cookies/Pterimg.pickle"
+        cookiefile = f"{meta['base_dir']}/data/cookies/Pterimg.json"
         with requests.Session() as session:
             loggedIn = False
             if os.path.exists(cookiefile):
-                with open(cookiefile, 'rb') as cf:
-                    session.cookies.update(pickle.load(cf))
-                r = session.get("https://s3.pterclub.com")
+                self.cookie_validator._load_cookies_secure(session, cookiefile, self.tracker)
+                r = session.get("https://s3.pterclub.com", timeout=30)
                 loggedIn = await self.validate_login(r)
             else:
                 console.print("[yellow]Pterimg Cookies not found. Creating new session.")
             if loggedIn is True:
-                auth_token = re.search(r'auth_token.*?\"(\w+)\"', r.text).groups()[0]
+                auth_token = self._extract_auth_token(r.text, r'auth_token.*?"(\w+)"')
             else:
                 data = {
                     'login-subject': self.username,
                     'password': self.password,
                     'keep-login': 1
                 }
-                r = session.get("https://s3.pterclub.com")
-                data['auth_token'] = re.search(r'auth_token.*?\"(\w+)\"', r.text).groups()[0]
-                loginresponse = session.post(url='https://s3.pterclub.com/login', data=data)
+                r = session.get("https://s3.pterclub.com", timeout=30)
+                data['auth_token'] = self._extract_auth_token(r.text, r'auth_token.*?"(\w+)"')
+                loginresponse = session.post(url='https://s3.pterclub.com/login', data=data, timeout=30)
                 if not loginresponse.ok:
                     raise LoginException("Failed to login to Pterimg. ")  # noqa #F405
-                auth_token = re.search(r'auth_token = *?\"(\w+)\"', loginresponse.text).groups()[0]
-                with open(cookiefile, 'wb') as cf:
-                    pickle.dump(session.cookies, cf)
+                auth_token = self._extract_auth_token(loginresponse.text, r'auth_token = *?"(\w+)"')
+                self.cookie_validator._save_cookies_secure(session.cookies, cookiefile)
 
         return auth_token
 
@@ -265,26 +271,44 @@ class PTER():
             'nsfw': 0,
             'auth_token': await self.get_auth_token(meta)
         }
-        cookiefile = f"{meta['base_dir']}/data/cookies/Pterimg.pickle"
+        cookiefile = f"{meta['base_dir']}/data/cookies/Pterimg.json"
         with requests.Session() as session:
             if os.path.exists(cookiefile):
-                with open(cookiefile, 'rb') as cf:
-                    session.cookies.update(pickle.load(cf))
-                    files = {}
-                    for i in range(len(images)):
-                        files = {'source': open(images[i], 'rb')}
-                        req = session.post(f'{url}/json', data=data, files=files)
+                self.cookie_validator._load_cookies_secure(session, cookiefile, self.tracker)
+                for image_path in images:
+                    with open(image_path, 'rb') as f:
+                        files = {'source': f}
+                        req = session.post(f'{url}/json', data=data, files=files, timeout=60)
+
+                        res = None
                         try:
                             res = req.json()
                         except json.decoder.JSONDecodeError:
-                            res = {}
+                            res = None
+
+                        message = None
+                        if isinstance(res, dict):
+                            message = res.get('error', {}).get('message')
+                        if not message:
+                            message = (req.reason or '').strip() or (req.text or '').strip()
+
                         if not req.ok:
-                            if res['error']['message'] in ('重复上传', 'Duplicated upload'):
+                            if message in ('重复上传', 'Duplicated upload'):
                                 continue
-                            raise (f'HTTP {req.status_code}, reason: {res["error"]["message"]}')
-                        image_dict = {}
-                        image_dict['web_url'] = res['image']['url']
-                        image_dict['img_url'] = res['image']['url']
+                            raise Exception(f'HTTP {req.status_code}, reason: {message}')
+
+                        if not isinstance(res, dict):
+                            raise ValueError('Unexpected response payload while uploading to Pterimg.')
+                        image_data = res.get('image')
+                        if not isinstance(image_data, dict):
+                            raise ValueError('Missing image data in Pterimg response.')
+                        image_url = image_data.get('url')
+                        if not isinstance(image_url, str):
+                            raise ValueError('Missing image url in Pterimg response.')
+                        image_dict = {
+                            'web_url': image_url,
+                            'img_url': image_url,
+                        }
                         image_list.append(image_dict)
         return image_list
 
@@ -380,28 +404,36 @@ class PTER():
                 console.print(url)
                 console.print(data)
                 meta['tracker_status'][self.tracker]['status_message'] = "Debug mode enabled, not uploading."
+                await common.create_torrent_for_upload(meta, f"{self.tracker}" + "_DEBUG", f"{self.tracker}" + "_DEBUG", announce_url="https://fake.tracker")
+                return True  # Debug mode - simulated success
             else:
                 cookiefile = f"{meta['base_dir']}/data/cookies/PTER.txt"
                 if os.path.exists(cookiefile):
                     with requests.Session() as session:
                         session.cookies.update(await common.parseCookieFile(cookiefile))
-                        up = session.post(url=url, data=data, files=files)
+                        up = session.post(url=url, data=data, files=files, timeout=30)
                         torrentFile.close()
                         mi_dump.close()
 
                         if up.url.startswith("https://pterclub.com/details.php?id="):
                             console.print(f"[green]Uploaded to: [yellow]{up.url.replace('&uploaded=1', '')}[/yellow][/green]")
-                            id = re.search(r"(id=)(\d+)", urlparse(up.url).query).group(2)
-                            await self.download_new_torrent(id, torrent_path)
+                            id_match = re.search(r"(id=)(\d+)", urlparse(up.url).query)
+                            if id_match is None:
+                                raise UploadException("Upload succeeded but torrent id was not present in the redirect URL.", 'red')  # noqa: F405
+                            torrent_id = id_match.group(2)
+                            await self.download_new_torrent(torrent_id, torrent_path)
+                            meta['tracker_status'][self.tracker]['status_message'] = up.url.replace('&uploaded=1', '')
+                            meta['tracker_status'][self.tracker]['torrent_id'] = torrent_id
+                            return True
                         else:
                             console.print(data)
                             console.print("\n\n")
                             raise UploadException(f"Upload to Pter Failed: result URL {up.url} ({up.status_code}) was not expected", 'red')  # noqa #F405
-        return
+        return False
 
     async def download_new_torrent(self, id, torrent_path):
         download_url = f"https://pterclub.com/download.php?id={id}&passkey={self.passkey}"
-        r = requests.get(url=download_url)
+        r = requests.get(url=download_url, timeout=30)
         if r.status_code == 200:
             with open(torrent_path, "wb") as tor:
                 tor.write(r.content)

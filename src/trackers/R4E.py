@@ -20,9 +20,9 @@ class R4E(UNIT3D):
         self.search_url = f'{self.base_url}/api/torrents/filter'
         self.torrent_url = f'{self.base_url}/torrents/'
         self.banned_groups = []
-        pass
 
-    async def get_category_id(self, meta):
+    async def get_category_id(self, meta, category=None, reverse=False, mapping_only=False):
+        category_id = '24'
         # Use stored genre IDs if available
         if meta and meta.get('genre_ids'):
             genre_ids = meta['genre_ids'].split(',')
@@ -41,7 +41,7 @@ class R4E(UNIT3D):
 
         return {'category_id': category_id}
 
-    async def get_type_id(self, meta):
+    async def get_type_id(self, meta, type=None, reverse=False, mapping_only=False):
         type_id = {
             '8640p': '2160p',
             '4320p': '2160p',
@@ -75,7 +75,7 @@ class R4E(UNIT3D):
     async def get_sticky(self, meta):
         return {}
 
-    async def get_resolution_id(self, meta):
+    async def get_resolution_id(self, meta, resolution=None, reverse=False, mapping_only=False):
         return {}
 
     async def search_existing(self, meta, disctype):
@@ -85,7 +85,7 @@ class R4E(UNIT3D):
             'api_token': self.config['TRACKERS']['R4E']['api_key'].strip(),
             'tmdb': meta['tmdb'],
             'categories[]': (await self.get_category_id(meta))['category_id'],
-            'types[]': await self.get_type_id(meta),
+            'types[]': (await self.get_type_id(meta))['type_id'],
             'name': ""
         }
         if meta['category'] == 'TV':
@@ -98,7 +98,7 @@ class R4E(UNIT3D):
                 if response.status_code == 200:
                     data = response.json()
                     for each in data['data']:
-                        result = [each][0]['attributes']['name']
+                        result = each['attributes']['name']
                         dupes.append(result)
                 else:
                     console.print(f"[bold red]Failed to search torrents. HTTP Status: {response.status_code}")

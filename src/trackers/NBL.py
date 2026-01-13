@@ -74,21 +74,27 @@ class NBL():
                     if response.status_code in [200, 201]:
                         try:
                             response_data = response.json()
+                            meta['tracker_status'][self.tracker]['status_message'] = response_data
+                            return True
                         except json.JSONDecodeError:
                             meta['tracker_status'][self.tracker]['status_message'] = "data error: NBL json decode error, the API is probably down"
-                            return
+                            return False
                     else:
                         response_data = {
                             "error": f"Unexpected status code: {response.status_code}",
                             "response_content": response.text
                         }
-                    meta['tracker_status'][self.tracker]['status_message'] = response_data
+                        meta['tracker_status'][self.tracker]['status_message'] = response_data
+                    return False
             else:
                 console.print("[cyan]NBL Request Data:")
                 console.print(data)
                 meta['tracker_status'][self.tracker]['status_message'] = "Debug mode enabled, not uploading."
+                await common.create_torrent_for_upload(meta, f"{self.tracker}" + "_DEBUG", f"{self.tracker}" + "_DEBUG", announce_url="https://fake.tracker")
+                return True  # Debug mode - simulated success
         except Exception as e:
             meta['tracker_status'][self.tracker]['status_message'] = f"data error: Upload failed: {e}"
+            return False
 
     async def search_existing(self, meta, disctype):
         if meta['category'] != 'TV':
@@ -108,6 +114,10 @@ class NBL():
                     console.print("[red]Only TV Is allowed at NBL")
                 meta['skipping'] = "NBL"
                 return []
+
+        if meta['valid_mi'] is False:
+            console.print(f"[bold red]No unique ID in mediainfo, skipping {self.tracker} upload.")
+            return False
 
         if meta.get('is_disc') is not None:
             if not meta['unattended']:
@@ -168,7 +178,14 @@ class NBL():
             console.print(f"[bold red]Unexpected KeyError: {e}")
             if 'result' not in response.json():
                 console.print("[red]NBL API returned an unexpected response. Please manually check for dupes.")
-                dupes.append("ERROR: PLEASE CHECK FOR EXISTING RELEASES MANUALLY")
+                dupes.append({
+                    'name': "ERROR: PLEASE CHECK FOR EXISTING RELEASES MANUALLY",
+                    'files': '',
+                    'size': 0,
+                    'link': '',
+                    'file_count': 0,
+                    'download': ''
+                })
         except Exception as e:
             meta['skipping'] = "NBL"
             console.print(f"[bold red]NBL unexpected error: {e}")

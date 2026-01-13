@@ -5,6 +5,7 @@ import os
 import json
 import urllib.parse
 import re
+from typing import Any, Mapping, Union, cast
 from torf import Torrent
 import glob
 from src.console import console
@@ -12,7 +13,16 @@ from src.uploadscreens import upload_screens
 from data.config import config
 
 
-async def package(meta):
+DEFAULT_CONFIG: Mapping[str, Any] = cast(Mapping[str, Any], config.get('DEFAULT', {}))
+if not isinstance(DEFAULT_CONFIG, dict):
+    raise ValueError("'DEFAULT' config section must be a dict")
+
+TRACKER_CONFIG: Mapping[str, Any] = cast(Mapping[str, Any], config.get('TRACKERS', {}))
+if not isinstance(TRACKER_CONFIG, dict):
+    raise ValueError("'TRACKERS' config section must be a dict")
+
+
+async def package(meta: dict[str, Any]) -> Union[str, bool]:
     if meta['tag'] == "":
         tag = ""
     else:
@@ -37,7 +47,7 @@ async def package(meta):
         poster_img = f"{meta['base_dir']}/tmp/{meta['uuid']}/POSTER.png"
         if meta.get('poster', None) not in ['', None] and not os.path.exists(poster_img):
             if meta.get('rehosted_poster', None) is None:
-                r = requests.get(meta['poster'], stream=True)
+                r = requests.get(meta['poster'], stream=True, timeout=30)
                 if r.status_code == 200:
                     console.print("[bold yellow]Rehosting Poster")
                     r.raw.decode_content = True
@@ -75,7 +85,10 @@ async def package(meta):
             manual_name = re.sub(r"[^0-9a-zA-Z\[\]\'\-]+", ".", os.path.basename(meta['path']))
             Torrent.copy(base_torrent).write(f"{meta['base_dir']}/tmp/{meta['uuid']}/{manual_name}.torrent", overwrite=True)
             # shutil.copy(os.path.abspath(f"{meta['base_dir']}/tmp/{meta['uuid']}/BASE.torrent"), os.path.abspath(f"{meta['base_dir']}/tmp/{meta['uuid']}/{meta['name'].replace(' ', '.')}.torrent").replace(' ', '.'))
-        filebrowser = config['TRACKERS'].get('MANUAL', {}).get('filebrowser', None)
+        manual_tracker_raw = TRACKER_CONFIG.get('MANUAL')
+        manual_tracker_cfg = manual_tracker_raw if isinstance(manual_tracker_raw, dict) else {}
+        manual_filebrowser = manual_tracker_cfg.get('filebrowser')
+        filebrowser = manual_filebrowser if isinstance(manual_filebrowser, str) else None
         shutil.make_archive(archive, 'tar', f"{meta['base_dir']}/tmp/{meta['uuid']}")
         if filebrowser is not None:
             url = '/'.join(s.strip('/') for s in (filebrowser, f"/tmp/{meta['uuid']}"))
@@ -84,11 +97,10 @@ async def package(meta):
             files = {
                 "files[]": (f"{meta['title']}.tar", open(f"{archive}.tar", 'rb'))
             }
-            response = requests.post("https://uguu.se/upload.php", files=files).json()
+            response = requests.post("https://uguu.se/upload.php", files=files, timeout=30).json()
             if meta['debug']:
                 console.print(f"[cyan]{response}")
             url = response['files'][0]['url']
         return url
     except Exception:
         return False
-    return

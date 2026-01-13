@@ -21,11 +21,15 @@ from src.get_desc import DescriptionBuilder
 from src.languages import process_desc_language
 from src.tmdb import get_tmdb_localized_data
 from src.trackers.COMMON import COMMON
-from typing import Optional
+from typing import Any, Optional, cast
 from urllib.parse import urlparse
 
 
 class BJS:
+    secret_token: str = ''
+    already_has_the_info: bool = False
+    database_title: str = ''
+
     def __init__(self, config):
         self.config = config
         self.common = COMMON(config)
@@ -63,7 +67,7 @@ class BJS:
             tracker=self.tracker,
             test_url=f'{self.base_url}/upload.php',
             error_text='login.php',
-            token_pattern=r'name="auth" value="([^"]+)"'
+            token_pattern=r'name="auth" value="([^"]+)"'  # nosec B106
         )
 
     async def load_localized_data(self, meta):
@@ -165,7 +169,7 @@ class BJS:
 
     async def get_audio(self, meta):
         if not meta.get('language_checked', False):
-            await process_desc_language(meta, desc=None, tracker=self.tracker)
+            await process_desc_language(meta, tracker=self.tracker)
 
         audio_languages = set(meta.get('audio_languages', []))
 
@@ -188,7 +192,7 @@ class BJS:
 
     async def get_subtitle(self, meta):
         if not meta.get('language_checked', False):
-            await process_desc_language(meta, desc=None, tracker=self.tracker)
+            await process_desc_language(meta, tracker=self.tracker)
         found_language_strings = meta.get('subtitle_languages', [])
 
         subtitle_type = 'Nenhuma'
@@ -296,16 +300,24 @@ class BJS:
         return 'Outro'
 
     async def get_title(self, meta):
-        title = self.main_tmdb_data.get('name') or self.main_tmdb_data.get('title') or ''
+        original_title = meta['title']
+        brazilian_title = ""
 
-        return title if title and title != meta.get('title') else ''
+        if BJS.database_title:
+            original_title = BJS.database_title
+
+        tmdb_title = self.main_tmdb_data.get('name') or self.main_tmdb_data.get('title')
+        if tmdb_title and tmdb_title != meta.get('title'):
+            brazilian_title = tmdb_title
+
+        return original_title, brazilian_title
 
     async def build_description(self, meta):
-        builder = DescriptionBuilder(self.config)
+        builder = DescriptionBuilder(self.tracker, self.config)
         desc_parts = []
 
         # Custom Header
-        desc_parts.append(await builder.get_custom_header(self.tracker))
+        desc_parts.append(await builder.get_custom_header())
 
         # Logo
         logo_resize_url = meta.get('tmdb_logo', '')
@@ -327,7 +339,7 @@ class BJS:
 
         # File information
         if meta.get('is_disc', '') == 'DVD':
-            desc_parts.append(f'[hide=DVD MediaInfo][pre]{await builder.get_mediainfo_section(meta, self.tracker)}[/pre][/hide]')
+            desc_parts.append(f'[hide=DVD MediaInfo][pre]{await builder.get_mediainfo_section(meta)}[/pre][/hide]')
 
         bd_info = await builder.get_bdinfo_section(meta)
         if bd_info:
@@ -337,7 +349,7 @@ class BJS:
         desc_parts.append(await builder.get_user_description(meta))
 
         # Tonemapped Header
-        desc_parts.append(await builder.get_tonemapped_header(meta, self.tracker))
+        desc_parts.append(await builder.get_tonemapped_header(meta))
 
         # Signature
         desc_parts.append(f"[align=center][url=https://github.com/Audionut/Upload-Assistant]Upload realizado via {meta['ua_name']} {meta['current_version']}[/url][/align]")
@@ -487,7 +499,7 @@ class BJS:
         return False, False
 
     def _extract_torrent_ids(self, rows_to_process):
-        ajax_tasks = []
+        ajax_tasks: list[dict[str, Any]] = []
 
         for row, process_folder_name in rows_to_process:
             id_link = row.find('a', onclick=re.compile(r'loadIfNeeded\('))
@@ -518,7 +530,7 @@ class BJS:
 
         return ajax_tasks
 
-    async def _fetch_torrent_content(self, task_info):
+    async def _fetch_torrent_content(self, task_info: dict[str, Any]) -> dict[str, Any]:
         torrent_id = task_info['torrent_id']
         group_id = task_info['group_id']
         ajax_url = f'{self.base_url}/ajax.php?action=torrent_content&torrentid={torrent_id}&groupid={group_id}'
@@ -567,7 +579,7 @@ class BJS:
 
         return item_name
 
-    async def _process_ajax_responses(self, ajax_tasks, params):
+    async def _process_ajax_responses(self, ajax_tasks: list[dict[str, Any]], params: dict[str, Any]) -> list[dict[str, str]]:
         if not ajax_tasks:
             return []
 
@@ -576,28 +588,36 @@ class BJS:
             return_exceptions=True
         )
 
-        found_items = []
+        found_items: list[dict[str, str]] = []
         for result in ajax_results:
             if isinstance(result, Exception):
                 console.print(f'[yellow]Erro na chamada AJAX: {result}[/yellow]')
                 continue
 
-            if not result['success']:
+            # At this point `result` is expected to be the dict returned by `_fetch_torrent_content`.
+            fetch_result = cast(dict[str, Any], result)
+            if not fetch_result.get('success'):
                 continue
 
-            task_info = result['task_info']
+            task_info = fetch_result.get('task_info')
+            soup_obj = fetch_result.get('soup')
+            if not isinstance(task_info, dict) or not isinstance(soup_obj, BeautifulSoup):
+                continue
+
+            description_text = str(task_info.get('description_text', ''))
+            process_folder_name = bool(task_info.get('process_folder_name'))
             item_name = self._extract_item_name(
-                result['soup'],
-                task_info['description_text'],
+                soup_obj,
+                description_text,
                 params['is_tv_pack'],
-                task_info['process_folder_name']
+                process_folder_name
             )
 
             if item_name:
                 found_items.append({
                     'name': item_name,
-                    'size': task_info.get('size', ''),
-                    'link': task_info.get('link', '')
+                    'size': str(task_info.get('size', '') or ''),
+                    'link': str(task_info.get('link', '') or '')
                 })
 
         return found_items
@@ -612,6 +632,34 @@ class BJS:
 
         return BeautifulSoup(response.text, 'html.parser')
 
+    async def get_database_title(self, soup):
+        """
+        Extracts the original title to ensure consistency with the BJS database.
+        Since BJS treats different titles as unique entries regardless of IMDb parity,
+        this value is used to match existing records.
+        """
+        original_title = ''
+        info_boxes = soup.find_all('div', class_='box')
+        target_box = None
+
+        for box in info_boxes:
+            header_div = box.find('div', class_='head')
+            if header_div and 'Informações' in header_div.get_text():
+                target_box = box
+                break
+
+        if target_box:
+            rows = target_box.find_all('tr')
+            for row in rows:
+                cells = row.find_all('td')
+                if len(cells) >= 2:
+                    label_text = cells[0].get_text(strip=True)
+                    if 'Título Original:' in label_text or 'Título:' in label_text:
+                        original_title = cells[1].get_text(strip=True)
+                        break
+
+        return original_title
+
     async def search_existing(self, meta, disctype):
         should_continue = await self.get_additional_checks(meta)
         if not should_continue:
@@ -622,12 +670,16 @@ class BJS:
             self.session.cookies = await self.cookie_validator.load_session_cookies(meta, self.tracker)
 
             BJS.already_has_the_info = False
+            BJS.database_title = ''
             params = self._extract_upload_params(meta)
 
             soup = await self._fetch_search_page(meta)
             torrent_details_table = soup.find('div', class_='main_column')
 
-            if not torrent_details_table:
+            if torrent_details_table:
+                BJS.already_has_the_info = True
+                BJS.database_title = await self.get_database_title(soup)
+            else:
                 return []
 
             episode_found_on_page = False
@@ -674,7 +726,6 @@ class BJS:
 
             ajax_tasks = self._extract_torrent_ids(rows_to_process)
             found_items = await self._process_ajax_responses(ajax_tasks, params)
-            BJS.already_has_the_info = bool(found_items)
 
             return found_items
 
@@ -1007,6 +1058,15 @@ class BJS:
                 else:
                     return 'skipped'
 
+    async def get_imdb_rating(self, meta):
+        imdb_info = meta.get('imdb_info', {})
+        rating = imdb_info.get('rating')
+
+        if not rating:
+            return "N/A"
+
+        return str(rating)
+
     async def get_requests(self, meta):
         if not self.config['DEFAULT'].get('search_requests', False) and not meta.get('search_requests', False):
             return False
@@ -1083,6 +1143,7 @@ class BJS:
         self.session.cookies = await self.cookie_validator.load_session_cookies(meta, self.tracker)
         await self.load_localized_data(meta)
         category = meta['category']
+        original_title, brazilian_title = await self.get_title(meta)
 
         data = {}
 
@@ -1108,11 +1169,11 @@ class BJS:
             'submit': 'true',
             'tags': await self.get_tags(meta),
             'tipolegenda': await self.get_subtitle(meta),
-            'title': meta['title'],
-            'titulobrasileiro': await self.get_title(meta),
+            'title': original_title,
+            'titulobrasileiro': brazilian_title,
             'traileryoutube': await self.get_trailer(meta),
             'type': self.get_type(meta),
-            'year': f"{meta['year']}-{meta['imdb_info']['end_year']}" if meta.get('imdb_info').get('end_year') else meta['year'],
+            'year': f"{meta['year']}-{meta['imdb_info']['end_year']}" if meta.get('imdb_info').get('end_year') else f"{meta['year']}-",
         })
 
         # These fields are common in movies and TV shows, even if it's anime
@@ -1134,7 +1195,7 @@ class BJS:
         if not meta.get('anime'):
             data.update({
                 'validimdb': 'yes',
-                'imdbrating': str(meta.get('imdb_info', {}).get('rating', '')),
+                'imdbrating': await self.get_imdb_rating(meta),
                 'elenco': await self.get_credits(meta, 'cast'),
             })
             if category == 'MOVIE':
@@ -1228,8 +1289,9 @@ class BJS:
         issue = await self.check_data(meta, data)
         if issue:
             meta["tracker_status"][self.tracker]["status_message"] = f'data error - {issue}'
+            return False
         else:
-            await self.cookie_auth_uploader.handle_upload(
+            is_uploaded = await self.cookie_auth_uploader.handle_upload(
                 meta=meta,
                 tracker=self.tracker,
                 source_flag=self.source_flag,
@@ -1242,4 +1304,7 @@ class BJS:
                 success_text="action=download&id=",
             )
 
-        return
+        if not is_uploaded:
+            return False
+
+        return True

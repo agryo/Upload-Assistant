@@ -10,6 +10,8 @@ import re
 import platform
 import httpx
 from bs4 import BeautifulSoup
+from bs4.element import AttributeValueList
+from typing import Any
 from unidecode import unidecode
 from src.bbcode import BBCODE
 from src.console import console
@@ -39,7 +41,7 @@ class THR():
         if meta.get('unattended', False) is False:
             thr_confirm = cli_ui.ask_yes_no("Correct?", default=False)
             if thr_confirm is not True:
-                thr_name_manually = cli_ui.ask_string("Please enter a proper name", default="")
+                thr_name_manually = cli_ui.ask_string("Please enter a proper name", default="") or ""
                 if thr_name_manually == "":
                     console.print('No proper name given')
                     console.print("Aborting...")
@@ -48,14 +50,15 @@ class THR():
                     thr_name = thr_name_manually
         torrent_name = re.sub(r"[^0-9a-zA-Z. '\-\[\]]+", " ", thr_name)
 
+        mi_file: bytes = b""
+
         if meta.get('is_disc', '') == 'BDMV':
-            mi_file = None
+            mi_file = b""
             # bd_file = f"{meta['base_dir']}/tmp/{meta['uuid']}/BD_SUMMARY_00.txt", 'r', encoding='utf-8'
         else:
-            mi_file = os.path.abspath(f"{meta['base_dir']}/tmp/{meta['uuid']}/MEDIAINFO_CLEANPATH.txt")
-            with open(mi_file, 'r') as f:
+            mi_file_path = os.path.abspath(f"{meta['base_dir']}/tmp/{meta['uuid']}/MEDIAINFO_CLEANPATH.txt")
+            with open(mi_file_path, 'rb') as f:
                 mi_file = f.read()
-                f.close()
             # bd_file = None
 
         with open(f"{meta['base_dir']}/tmp/{meta['uuid']}/[THR]DESCRIPTION.txt", 'r', encoding='utf-8') as f:
@@ -69,7 +72,7 @@ class THR():
 
         # Upload Form
         url = 'https://www.torrenthr.org/takeupload.php'
-        files = {
+        files: dict[str, tuple[str, Any]] = {
             'tfile': (f'{torrent_name}.torrent', tfile)
         }
         payload = {
@@ -115,7 +118,7 @@ class THR():
                         else:
                             console.print(f"[yellow]Upload response didn't contain 'uploaded=1'. URL: {response.url}")
                             soup = BeautifulSoup(response.text, 'html.parser')
-                            error_text = soup.find('h2', string=lambda text: text and 'Error' in text)
+                            error_text = soup.find('h2', string=re.compile(r'Error'))  # type: ignore
 
                             if error_text:
                                 error_message = error_text.find_next('p')
@@ -138,9 +141,10 @@ class THR():
                 console.print("[yellow]It may have uploaded, please check THR manually")
                 return False
         else:
-            console.print("[cyan]Request Data:")
+            console.print("[cyan]THR Request Data:")
             console.print(payload)
             meta['tracker_status'][self.tracker]['status_message'] = "Debug mode enabled, not uploading."
+            await common.create_torrent_for_upload(meta, f"{self.tracker}" + "_DEBUG", f"{self.tracker}" + "_DEBUG", announce_url="https://fake.tracker")
             return False
 
     async def get_cat_id(self, meta):
@@ -169,8 +173,8 @@ class THR():
         return cat
 
     def get_subtitles(self, meta):
-        subs = []
-        sub_langs = []
+        subs: list[int] = []
+        sub_langs: list[str] = []
         if meta.get('is_disc', '') != 'BDMV':
             with open(f"{meta.get('base_dir')}/tmp/{meta.get('uuid')}/MediaInfo.json", 'r', encoding='utf-8') as f:
                 mi = json.load(f)
@@ -266,7 +270,7 @@ class THR():
                     # 'source' : base64.b64encode(open(image, "rb").read()).decode('utf8')
                 }
                 files = {'source': open(image, 'rb')}
-                response = requests.post(url, data=data, files=files)
+                response = requests.post(url, data=data, files=files, timeout=30)
                 try:
                     response = response.json()
                     # med_url = response['image']['medium']['url']
@@ -292,7 +296,7 @@ class THR():
                     'theme': self.config['TRACKERS']['THR'].get('pronfo_theme', 'gray'),
                     'rapi': self.config['TRACKERS']['THR'].get('pronfo_rapi_id')
                 }
-                response = requests.post(pronfo_url, data=data)
+                response = requests.post(pronfo_url, data=data, timeout=30)
                 try:
                     response = response.json()
                     if response.get('error', True) is False:
@@ -319,7 +323,7 @@ class THR():
     async def search_existing(self, meta, disctype):
         imdb_id = meta.get('imdb', '')
         base_search_url = f"https://www.torrenthr.org/browse.php?search={imdb_id}&blah=2&incldead=1"
-        dupes = []
+        dupes: list[str] = []
 
         if not imdb_id:
             console.print("[red]No IMDb ID available for search", style="bold red")
@@ -328,7 +332,7 @@ class THR():
         try:
             cookies = await self.login()
 
-            client_args = {'timeout': 10.0, 'follow_redirects': True}
+            client_args: dict[str, Any] = {'timeout': 10.0, 'follow_redirects': True}
             if cookies:
                 client_args['cookies'] = cookies
             else:
@@ -340,7 +344,7 @@ class THR():
                 current_page = 0
                 more_pages = True
                 page_count = 0
-                all_titles_seen = set()
+                all_titles_seen: set[str] = set()
 
                 while more_pages:
                     page_url = base_search_url
@@ -353,7 +357,7 @@ class THR():
                     response = await client.get(page_url)
 
                     page_dupes, has_next_page, next_page_number = await self._process_search_response(
-                        response, meta, all_titles_seen, current_page)
+                        response, meta, current_page)
 
                     for dupe in page_dupes:
                         if dupe not in dupes:
@@ -380,8 +384,8 @@ class THR():
 
         return dupes
 
-    async def _process_search_response(self, response, meta, existing_dupes, current_page):
-        page_dupes = []
+    async def _process_search_response(self, response, meta, current_page):
+        page_dupes: list[str] = []
         has_next_page = False
         next_page_number = current_page
 
@@ -406,12 +410,19 @@ class THR():
             onmousemove_count = 0
 
             for link in soup.find_all('a', href=True):
-                if link['href'].startswith('details.php'):
+                href_raw = link.get('href')
+                if not href_raw:
+                    continue
+                href = ' '.join(href_raw) if isinstance(href_raw, AttributeValueList) else str(href_raw)
+
+                if href.startswith('details.php'):
                     link_count += 1
-                    if link.get('onmousemove', False):
+                    onmousemove_raw = link.get('onmousemove')
+                    if onmousemove_raw:
                         onmousemove_count += 1
                         try:
-                            dupe = link['onmousemove'].split("','/images")[0]
+                            onmousemove = ' '.join(onmousemove_raw) if isinstance(onmousemove_raw, AttributeValueList) else str(onmousemove_raw)
+                            dupe = onmousemove.split("','/images")[0]
                             dupe = dupe.replace("return overlibImage('", "")
                             page_dupes.append(dupe)
                         except Exception as parsing_error:
@@ -435,7 +446,10 @@ class THR():
                 for link in next_links:
                     if 'Next' in link.text:
                         has_next_page = True
-                        href = link.get('href', '')
+                        href_raw = link.get('href')
+                        href = ''
+                        if href_raw:
+                            href = ' '.join(href_raw) if isinstance(href_raw, AttributeValueList) else str(href_raw)
 
                         if meta.get('debug', False):
                             console.print(f"[dim]Next page URL: {href}")
@@ -477,8 +491,12 @@ class THR():
                 login_soup = BeautifulSoup(login_page.text, 'html.parser')
 
                 for input_tag in login_soup.find_all('input', type='hidden'):
-                    if input_tag.get('name') and input_tag.get('value'):
-                        payload[input_tag['name']] = input_tag['value']
+                    name_raw = input_tag.get('name')
+                    value_raw = input_tag.get('value')
+                    if name_raw and value_raw:
+                        name = ' '.join(name_raw) if isinstance(name_raw, AttributeValueList) else str(name_raw)
+                        value = ' '.join(value_raw) if isinstance(value_raw, AttributeValueList) else str(value_raw)
+                        payload[name] = value
 
                 resp = await session.post(url, headers=headers, data=payload)
 

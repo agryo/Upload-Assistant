@@ -7,13 +7,12 @@ import os
 import re
 import requests
 
-from torf import Torrent
+from typing import IO
 from unidecode import unidecode
 from urllib.parse import urlparse, quote
 
 from src.bbcode import BBCODE
 from src.console import console
-from data.config import config
 from src.exceptions import *  # noqa F403
 from src.torrentcreate import create_torrent
 from src.trackers.COMMON import COMMON
@@ -32,7 +31,7 @@ class HDB():
         self.banned_groups = [""]
 
     async def get_type_category_id(self, meta):
-        cat_id = "EXIT"
+        cat_id = 0
         # 6 = Audio Track
         # 8 = Misc/Demo
         # 4 = Music
@@ -62,11 +61,11 @@ class HDB():
             "VP9": 6
         }
         searchcodec = meta.get('video_codec', meta.get('video_encode'))
-        codec_id = codecmap.get(searchcodec, "EXIT")
+        codec_id = codecmap.get(searchcodec, 0)
         return codec_id
 
     async def get_type_medium_id(self, meta):
-        medium_id = "EXIT"
+        medium_id = 0
         # 1 = Blu-ray / HD DVD
         if meta.get('is_disc', '') in ("BDMV", "HD DVD"):
             medium_id = 1
@@ -200,6 +199,7 @@ class HDB():
         hdb_name = hdb_name.replace('REMUX', 'Remux')
         hdb_name = hdb_name.replace('BluRay Remux', 'Remux')
         hdb_name = hdb_name.replace('UHD Remux', 'Remux')
+        hdb_name = hdb_name.replace('DTS-HD HRA', 'DTS-HD HR')
         hdb_name = ' '.join(hdb_name.split())
         hdb_name = re.sub(r"[^0-9a-zA-ZÀ-ÿ. :&+'\-\[\]]+", "", hdb_name)
         hdb_name = hdb_name.replace(' .', '.').replace('..', '.')
@@ -209,7 +209,6 @@ class HDB():
     async def upload(self, meta, disctype):
         common = COMMON(config=self.config)
         await self.edit_desc(meta)
-        await common.create_torrent_for_upload(meta, self.tracker, self.source_flag)
         hdb_name = await self.edit_name(meta)
         cat_id = await self.get_type_category_id(meta)
         codec_id = await self.get_type_codec_id(meta)
@@ -217,7 +216,7 @@ class HDB():
         hdb_tags = await self.get_tags(meta)
 
         for each in (cat_id, codec_id, medium_id):
-            if each == "EXIT":
+            if each == 0:
                 console.print("[bold red]Something didn't map correctly, or this content is not allowed on HDB")
                 return
         if "Dual-Audio" in meta['audio']:
@@ -226,19 +225,28 @@ class HDB():
                 return
 
         hdb_desc = open(f"{meta['base_dir']}/tmp/{meta['uuid']}/[{self.tracker}]DESCRIPTION.txt", 'r', encoding='utf-8').read()
+
+        base_piece_mb = int(meta.get('base_torrent_piece_mb', 0) or 0)
         torrent_file_path = f"{meta['base_dir']}/tmp/{meta['uuid']}/[{self.tracker}].torrent"
-        loop = asyncio.get_running_loop()
-        torrent = await loop.run_in_executor(None, Torrent.read, torrent_file_path)
 
         # Check if the piece size exceeds 16 MiB and regenerate the torrent if needed
-        if torrent.piece_size > 16777216:  # 16 MiB in bytes
+        if base_piece_mb > 16 and not meta.get('nohash', False):
             console.print("[red]Piece size is OVER 16M and does not work on HDB. Generating a new .torrent")
-            tracker_url = config['TRACKERS']['HDB'].get('announce_url', "https://fake.tracker").strip()
-            piece_size = '16'
+            hdb_config = self.config['TRACKERS'].get('HDB', {})
+            tracker_url = hdb_config.get('announce_url', "https://fake.tracker").strip() if isinstance(hdb_config, dict) else "https://fake.tracker"
+            piece_size = 16
             torrent_create = f"[{self.tracker}]"
+            try:
+                cooldown = int(self.config.get('DEFAULT', {}).get('rehash_cooldown', 0) or 0)
+            except (ValueError, TypeError):
+                cooldown = 0
+            if cooldown > 0:
+                await asyncio.sleep(cooldown)  # Small cooldown before rehashing
 
-            await create_torrent(meta, meta['path'], torrent_create, tracker_url=tracker_url, piece_size=piece_size)
+            await create_torrent(meta, str(meta['path']), torrent_create, tracker_url=tracker_url, piece_size=piece_size)
             await common.create_torrent_for_upload(meta, self.tracker, self.source_flag, torrent_filename=torrent_create)
+        else:
+            await common.create_torrent_for_upload(meta, self.tracker, self.source_flag)
 
         # Proceed with the upload process
         with open(torrent_file_path, 'rb') as torrentFile:
@@ -285,25 +293,28 @@ class HDB():
                 console.print(url)
                 console.print(data)
                 meta['tracker_status'][self.tracker]['status_message'] = "Debug mode enabled, not uploading."
+                await common.create_torrent_for_upload(meta, f"{self.tracker}" + "_DEBUG", f"{self.tracker}" + "_DEBUG", announce_url="https://fake.tracker")
+                return True  # Debug mode - simulated success
             else:
                 with requests.Session() as session:
                     cookiefile = f"{meta['base_dir']}/data/cookies/HDB.txt"
                     session.cookies.update(await common.parseCookieFile(cookiefile))
-                    up = session.post(url=url, data=data, files=files)
+                    up = session.post(url=url, data=data, files=files, timeout=30)
                     torrentFile.close()
 
                     # Match url to verify successful upload
                     match = re.match(r".*?hdbits\.org/details\.php\?id=(\d+)&uploaded=(\d+)", up.url)
                     if match:
                         meta['tracker_status'][self.tracker]['status_message'] = match.group(0)
-                        id = re.search(r"(id=)(\d+)", urlparse(up.url).query).group(2)
-                        await self.download_new_torrent(id, torrent_file_path)
+                        if id_match := re.search(r"(id=)(\d+)", urlparse(up.url).query):
+                            id = id_match.group(2)
+                            await self.download_new_torrent(id, torrent_file_path)
+                        return True
                     else:
                         console.print(data)
                         console.print("\n\n")
                         console.print(up.text)
                         raise UploadException(f"Upload to HDB Failed: result URL {up.url} ({up.status_code}) was not expected", 'red')  # noqa F405
-        return
 
     async def search_existing(self, meta, disctype):
         dupes = []
@@ -419,7 +430,7 @@ class HDB():
         if os.path.exists(cookiefile):
             with requests.Session() as session:
                 session.cookies.update(await common.parseCookieFile(cookiefile))
-                resp = session.get(url=url)
+                resp = session.get(url=url, timeout=30)
                 if resp.text.find("""<a href="/logout.php">Logout</a>""") != -1:
                     return True
                 else:
@@ -436,8 +447,20 @@ class HDB():
             'passkey': self.passkey,
             'id': id
         }
-        r = requests.get(url=api_url, data=json.dumps(data))
-        filename = r.json()['data'][0]['filename']
+        r = requests.post(url=api_url, data=json.dumps(data), timeout=30)
+        r.raise_for_status()
+        try:
+            r_json = r.json()
+        except json.JSONDecodeError as e:
+            raise Exception(f"Failed to parse JSON response from {api_url}. Response content: {r.text}. Data: {data}. Error: {e}")
+
+        if 'data' not in r_json or not isinstance(r_json['data'], list) or len(r_json['data']) == 0:
+            raise Exception(f"Invalid JSON response from {api_url}: 'data' key missing, not a list, or empty. Response: {r_json}. Data: {data}")
+
+        try:
+            filename = r_json['data'][0]['filename']
+        except (KeyError, IndexError) as e:
+            raise Exception(f"Failed to access filename in response from {api_url}. Response: {r_json}. Data: {data}. Error: {e}")
 
         # Download new .torrent
         download_url = f"https://hdbits.org/download.php/{quote(filename)}"
@@ -446,7 +469,18 @@ class HDB():
             'id': id
         }
 
-        r = requests.get(url=download_url, params=params)
+        r = requests.get(url=download_url, params=params, timeout=30)
+        r.raise_for_status()
+
+        # Validate content-type
+        content_type = r.headers.get('content-type', '').lower()
+        if 'bittorrent' not in content_type and 'octet-stream' not in content_type:
+            raise Exception(f"Unexpected content-type for torrent download: {content_type}. URL: {download_url}. Params: {params}")
+
+        # Basic validation: check if content looks like bencoded data (starts with 'd')
+        if not r.content.startswith(b'd'):
+            raise Exception(f"Downloaded content does not appear to be a valid torrent file (does not start with 'd'). URL: {download_url}. Params: {params}")
+
         with open(torrent_path, "wb") as tor:
             tor.write(r.content)
         return
@@ -551,13 +585,13 @@ class HDB():
 
             console.print(f"[green]Uploading comparison images from {comparison_path} to HDB Image Host")
 
-            group_images = {}
+            group_images: dict[str, list[str]] = {}
             max_images_per_group = 0
 
             if meta.get('comparison_groups'):
                 for group_idx, group_data in meta['comparison_groups'].items():
                     files_list = group_data.get('files', [])
-                    sorted_files = sorted(files_list, key=lambda f: int(re.match(r"(\d+)-", f).group(1)) if re.match(r"(\d+)-", f) else 0)
+                    sorted_files = sorted(files_list, key=lambda f: int(match.group(1)) if (match := re.match(r"(\d+)-", f)) else 0)
 
                     group_images[group_idx] = []
                     for filename in sorted_files:
@@ -567,21 +601,20 @@ class HDB():
 
                     max_images_per_group = max(max_images_per_group, len(group_images[group_idx]))
             else:
-                files = [f for f in os.listdir(comparison_path) if f.lower().endswith('.png')]
-                pattern = re.compile(r"(\d+)-(\d+)-(.+)\.png", re.IGNORECASE)
+                comparison_files = [f for f in os.listdir(comparison_path) if f.lower().endswith('.png')]
+                filename_pattern = re.compile(r"(\d+)-(\d+)-(.+)\.png", re.IGNORECASE)
+                unsorted_groups: dict[str, list[tuple[int, str]]] = {}
 
-                for f in files:
-                    match = pattern.match(f)
+                for file_name in comparison_files:
+                    match = filename_pattern.match(file_name)
                     if match:
-                        first, second, suffix = match.groups()
-                        if second not in group_images:
-                            group_images[second] = []
-                        file_path = os.path.join(comparison_path, f)
-                        group_images[second].append((int(first), file_path))
+                        first, second, _ = match.groups()
+                        file_path = os.path.join(comparison_path, file_name)
+                        unsorted_groups.setdefault(second, []).append((int(first), file_path))
 
-                for group_idx in group_images:
-                    group_images[group_idx].sort(key=lambda x: x[0])
-                    group_images[group_idx] = [item[1] for item in group_images[group_idx]]
+                for group_idx, entries in unsorted_groups.items():
+                    sorted_entries = sorted(entries, key=lambda x: x[0])
+                    group_images[group_idx] = [path for _, path in sorted_entries]
                     max_images_per_group = max(max_images_per_group, len(group_images[group_idx]))
 
             # Interleave images for correct ordering
@@ -613,16 +646,17 @@ class HDB():
             # similar to uploadscreens.py L546
             image_patterns = ["*.png", ".[!.]*.png"]
             image_glob = []
-            for pattern in image_patterns:
-                full_pattern = os.path.join(glob.escape(screenshot_dir), pattern)
+            for image_pattern in image_patterns:
+                full_pattern = os.path.join(glob.escape(screenshot_dir), str(image_pattern))
                 glob_results = await asyncio.to_thread(glob.glob, full_pattern)
                 image_glob.extend(glob_results)
             unwanted_patterns = ["FILE*", "PLAYLIST*", "POSTER*"]
             unwanted_files = set()
-            for pattern in unwanted_patterns:
-                glob_results = await asyncio.to_thread(glob.glob, full_pattern)
+            for unwanted_pattern in unwanted_patterns:
+                unwanted_full_pattern = os.path.join(glob.escape(screenshot_dir), str(unwanted_pattern))
+                glob_results = await asyncio.to_thread(glob.glob, unwanted_full_pattern)
                 unwanted_files.update(glob_results)
-                hidden_pattern = "." + pattern
+                hidden_pattern = os.path.join(glob.escape(screenshot_dir), "." + unwanted_pattern)
                 hidden_glob_results = await asyncio.to_thread(glob.glob, hidden_pattern)
                 unwanted_files.update(hidden_glob_results)  # finished with hidden_glob_results
             image_glob = [file for file in image_glob if file not in unwanted_files]
@@ -653,25 +687,25 @@ class HDB():
         if meta['debug']:
             console.print(f"[cyan]Uploading {upload_count} images to HDB Image Host")
 
-        files = {}
+        upload_files: dict[str, tuple[str, IO[bytes], str]] = {}
         for i in range(upload_count):
             file_path = all_image_files[i]
             try:
                 filename = os.path.basename(file_path)
-                files[f'images_files[{i}]'] = (filename, open(file_path, 'rb'), 'image/png')
+                upload_files[f'images_files[{i}]'] = (filename, open(file_path, 'rb'), 'image/png')
                 if meta['debug']:
                     console.print(f"[cyan]Added file {filename} as images_files[{i}]")
-            except Exception as e:
+            except (OSError, ValueError) as e:
                 console.print(f"[red]Failed to open {file_path}: {e}")
                 continue
 
         try:
-            if not files:
+            if not upload_files:
                 console.print("[red]No files to upload")
                 return None
 
             if meta['debug']:
-                console.print(f"[green]Uploading {len(files)} images to HDB...")
+                console.print(f"[green]Uploading {len(upload_files)} images to HDB...")
 
             uploadSuccess = True
             if meta.get('comparison', False):
@@ -679,11 +713,11 @@ class HDB():
                 max_chunk_size = 100 * 1024 * 1024  # 100 MiB in bytes
                 bbcode = ""
 
-                chunks = []
-                current_chunk = []
+                chunks: list[list[tuple[str, tuple[str, IO[bytes], str]]]] = []
+                current_chunk: list[tuple[str, tuple[str, IO[bytes], str]]] = []
                 current_chunk_size = 0
 
-                files_list = list(files.items())
+                files_list = list(upload_files.items())
                 for i in range(0, len(files_list), num_groups):
                     row_items = files_list[i:i+num_groups]
                     row_size = sum(os.path.getsize(all_image_files[i+j]) for j in range(len(row_items)))
@@ -713,7 +747,7 @@ class HDB():
                         chunk_size_mb = sum(os.path.getsize(all_image_files[int(key.split('[')[1].split(']')[0])]) for key, _ in chunk) / (1024 * 1024)
                         console.print(f"[cyan]Uploading chunk {chunk_idx + 1}/{len(chunks)} ({len(fileList)} images, {chunk_size_mb:.2f} MiB)")
 
-                    response = requests.post(url, data=data, files=fileList)
+                    response = requests.post(url, data=data, files=fileList, timeout=30)
                     if response.status_code == 200:
                         console.print(f"[green]Chunk {chunk_idx + 1}/{len(chunks)} upload successful!")
                         bbcode += response.text
@@ -722,7 +756,7 @@ class HDB():
                         uploadSuccess = False
                         break
             else:
-                response = requests.post(url, data=data, files=files)
+                response = requests.post(url, data=data, files=upload_files, timeout=30)
                 if response.status_code == 200:
                     console.print("[green]Upload successful!")
                     bbcode = response.text
@@ -756,7 +790,7 @@ class HDB():
             return None
         finally:
             # Close files to prevent resource leaks
-            for f in files.values():
+            for f in upload_files.values():
                 f[1].close()
 
     async def get_info_from_torrent_id(self, hdb_id):
@@ -769,7 +803,7 @@ class HDB():
         }
 
         try:
-            response = requests.post(url, json=data)
+            response = requests.post(url, json=data, timeout=30)
             if response.ok:
                 response_json = response.json()
 
@@ -842,7 +876,7 @@ class HDB():
             # console.print(f"[yellow]Using this data: {data}")
 
         try:
-            response = requests.post(url, json=data)
+            response = requests.post(url, json=data, timeout=30)
             if response.ok:
                 try:
                     response_json = response.json()

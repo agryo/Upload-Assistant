@@ -10,18 +10,12 @@ import time
 import re
 import gc
 import json
-from concurrent.futures import ThreadPoolExecutor
-import traceback
 import httpx
 import aiofiles
+from typing import Any, Union, cast
+from data.config import config as raw_config
 
-try:
-    from data.config import config
-except Exception:
-    print("[red]Error: Unable to import config. Ensure the config file is in the correct location.[/red]")
-    print("[red]Follow the setup instructions: https://github.com/Audionut/Upload-Assistant")
-    traceback.print_exc()
-    exit(1)
+config = cast(dict[str, Any], raw_config)
 
 
 async def upload_image_task(args):
@@ -321,7 +315,8 @@ async def upload_image_task(args):
 
             try:
                 with open(image, "rb") as img_file:
-                    files = {'file': img_file}
+                    filename = os.path.basename(image)
+                    files = {'file': (filename, img_file)}
                     headers = {
                         'Authorization': f'{api_key}',
                     }
@@ -468,6 +463,63 @@ async def upload_image_task(args):
                 console.print(f"[red]Unexpected error with Seedpool CDN: {e}")
                 return {'status': 'failed', 'reason': f'Unexpected error: {str(e)}'}
 
+        elif img_host == "sharex":
+            # Generic "ShareX-style" image host (IMageHosting and similar).
+            url = config['DEFAULT'].get('sharex_url', 'https://img.digitalcore.club/api/upload')
+            api_key = config['DEFAULT'].get('sharex_api_key')
+
+            if not api_key:
+                console.print("[red]ShareX image host token not found in config (sharex_api_key).[/red]")
+                return {'status': 'failed', 'reason': 'Missing ShareX image host token'}
+
+            try:
+                headers = {'Authorization': f'{api_key}'}
+                data = {'title': 'Upload-Assistant screenshot'}
+
+                async with httpx.AsyncClient() as client:
+                    async with aiofiles.open(image, 'rb') as img_file:
+                        files = {'file': (os.path.basename(image), await img_file.read())}
+                        response = await client.post(url, headers=headers, data=data, files=files, timeout=timeout)
+
+                        content_type = response.headers.get('Content-Type', '')
+                        if 'application/json' in content_type:
+                            response_data = response.json()
+                        else:
+                            console.print(f"[red]ShareX image host did not return JSON. Status: {response.status_code}, Response: {response.text[:200]}[/red]")
+                            return {'status': 'failed', 'reason': f'Non-JSON response from sharex image host: {response.status_code}'}
+
+                        if response.status_code not in (200, 201):
+                            message = response_data.get('message') or response_data.get('error') or response.text[:200]
+                            console.print(f"[yellow]ShareX image host upload failed ({response.status_code}): {message}[/yellow]")
+                            return {'status': 'failed', 'reason': f'sharex upload failed: {message}'}
+
+                        link = response_data.get('data', {}).get('link') or response_data.get('link')
+                        if not link:
+                            console.print(f"[yellow]ShareX image host response missing link: {response_data}[/yellow]")
+                            return {'status': 'failed', 'reason': 'No link in sharex response'}
+
+                        img_url = link
+                        raw_url = link
+                        web_url = link
+
+                        if meta.get('debug'):
+                            console.print(f"[green]ShareX image host upload successful: {link}[/green]")
+
+                        return {'status': 'success', 'img_url': img_url, 'raw_url': raw_url, 'web_url': web_url, 'local_file_path': image}
+
+            except httpx.TimeoutException:
+                console.print("[red]Request to ShareX image host timed out.[/red]")
+                return {'status': 'failed', 'reason': 'Request timed out'}
+            except httpx.RequestError as e:
+                console.print(f"[red]Request to ShareX image host failed with error: {e}[/red]")
+                return {'status': 'failed', 'reason': str(e)}
+            except ValueError as e:
+                console.print(f"[red]Invalid JSON response from ShareX image host: {e}[/red]")
+                return {'status': 'failed', 'reason': 'Invalid JSON response'}
+            except Exception as e:
+                console.print(f"[red]Unexpected error with ShareX image host: {str(e)}[/red]")
+                return {'status': 'failed', 'reason': f'Unexpected error: {str(e)}'}
+
         if img_url and raw_url and web_url:
             return {
                 'status': 'success',
@@ -489,11 +541,19 @@ async def upload_image_task(args):
         }
 
 
-# Global Thread Pool Executor for better thread control
-thread_pool = ThreadPoolExecutor(max_workers=10)
-
-
-async def upload_screens(meta, screens, img_host_num, i, total_screens, custom_img_list, return_dict, retry_mode=False, max_retries=3, allowed_hosts=None):
+async def upload_screens(
+        meta: dict[str, Any],
+        screens: int,
+        img_host_num: int,
+        i: int,
+        total_screens: int,
+        custom_img_list: list[str],
+        return_dict: dict[str, Any],
+        retry_mode: bool = False,
+        max_retries: int = 3,
+        allowed_hosts: Union[list[str], None] = None
+):
+    default_config = config.get('DEFAULT', {})
     if 'image_list' not in meta:
         meta['image_list'] = []
     if meta['debug']:
@@ -501,7 +561,7 @@ async def upload_screens(meta, screens, img_host_num, i, total_screens, custom_i
 
     os.chdir(f"{meta['base_dir']}/tmp/{meta['uuid']}")
 
-    initial_img_host = config['DEFAULT'][f'img_host_{img_host_num}']
+    initial_img_host = default_config[f'img_host_{img_host_num}']
     img_host = meta['imghost']
 
     # Check if current host is allowed, if not find an approved one
@@ -512,8 +572,8 @@ async def upload_screens(meta, screens, img_host_num, i, total_screens, custom_i
         approved_host = None
         for i in range(1, 10):  # Check img_host_1 through img_host_9
             host_key = f'img_host_{i}'
-            if host_key in config['DEFAULT']:
-                host = config['DEFAULT'][host_key]
+            if host_key in default_config:
+                host = default_config[host_key]
                 if host in allowed_hosts:
                     approved_host = host
                     img_host_num = i
@@ -681,8 +741,9 @@ async def upload_screens(meta, screens, img_host_num, i, total_screens, custom_i
             console.print(f"[blue]successfully_uploaded={len(successfully_uploaded)}, meta['image_list']={len(meta['image_list'])}, cutoff={meta.get('cutoff', 1)}[/blue]")
         if (len(successfully_uploaded) + len(meta['image_list'])) < images_needed and not retry_mode and img_host == initial_img_host and not using_custom_img_list:
             img_host_num += 1
-            if f'img_host_{img_host_num}' in config['DEFAULT']:
-                meta['imghost'] = config['DEFAULT'][f'img_host_{img_host_num}']
+            next_host_key = f'img_host_{img_host_num}'
+            if next_host_key in default_config:
+                meta['imghost'] = default_config[next_host_key]
                 console.print(f"[cyan]Switching to the next image host: {meta['imghost']}[/cyan]")
 
                 gc.collect()
@@ -736,7 +797,6 @@ async def upload_screens(meta, screens, img_host_num, i, total_screens, custom_i
 
     finally:
         # Cleanup
-        thread_pool.shutdown(wait=True)
         gc.collect()
 
 

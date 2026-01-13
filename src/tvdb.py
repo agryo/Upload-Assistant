@@ -2,7 +2,13 @@
 # Restricted-use credential — permitted only under UAPL v1.0 and associated service provider terms
 import asyncio
 import base64
+import json
+import os
 import re
+import ssl
+from typing import Union
+from urllib.error import URLError
+from pathlib import Path
 from tvdb_v4_official import TVDB
 
 from src.console import console
@@ -24,7 +30,40 @@ def _get_tvdb_k() -> str:
     return base64.b64decode(b64_bytes).decode()
 
 
-tvdb = TVDB(_get_tvdb_k())
+tvdb: Union[TVDB, None] = None
+_TVDB_INIT_ERROR: Union[Exception, None] = None
+_TVDB_ERROR_REPORTED = False
+
+try:
+    tvdb = TVDB(_get_tvdb_k())
+except (ssl.SSLError, URLError) as e:
+    _TVDB_INIT_ERROR = e
+except Exception as e:
+    _TVDB_INIT_ERROR = e
+
+
+def _get_tvdb_or_warn():
+    global _TVDB_ERROR_REPORTED
+
+    if tvdb is not None:
+        return tvdb
+
+    if not _TVDB_ERROR_REPORTED:
+        _TVDB_ERROR_REPORTED = True
+        if _TVDB_INIT_ERROR:
+            console.print(
+                "[yellow]TVDB login failed; continuing without TVDB. "
+                f"Reason: {_TVDB_INIT_ERROR}[/yellow]"
+            )
+            console.print(
+                "[yellow]This is usually a local Python CA/cert issue. "
+                "Fix options: install/update Windows roots, or set SSL_CERT_FILE to certifi's bundle "
+                "(e.g. `python -c \"import certifi; print(certifi.where())\"`).[/yellow]"
+            )
+        else:
+            console.print("[yellow]TVDB unavailable; continuing without TVDB.[/yellow]")
+
+    return None
 
 
 class tvdb_data:
@@ -35,7 +74,11 @@ class tvdb_data:
     async def search_tvdb_series(self, filename, year=None, debug=False):
         if debug:
             console.print(f"filename for TVDB search: {filename} year: {year}")
-        results = tvdb.search({filename}, year=year, type="series", lang="eng")
+        client = _get_tvdb_or_warn()
+        if client is None:
+            return None, None
+
+        results = client.search({filename}, year=year, type="series", lang="eng")
         await asyncio.sleep(0.1)
         try:
             if results and len(results) > 0:
@@ -79,19 +122,122 @@ class tvdb_data:
             console.print(f"[red]Error: {e}[/red]")
             return None, None
 
-    async def get_tvdb_episodes(self, series_id, debug=False):
+    async def get_tvdb_episodes(self, series_id, base_dir=None, debug=False, season=None, episode=None, absolute_number=None, aired_date=None):
+        # Backward compat: older call sites used (series_id, debug)
+        if isinstance(base_dir, bool) and debug is False:
+            debug = base_dir
+            base_dir = None
+
+        def _episode_is_present(episodes: list) -> bool:
+            if not episodes:
+                return False
+
+            # If no specific episode requested, any cached payload is acceptable.
+            if season is None and episode is None and absolute_number is None and not aired_date:
+                return True
+
+            aired_norm = None
+            if aired_date:
+                aired_norm = str(aired_date).strip().replace('.', '-')
+
+            # Normalize numeric inputs
+            try:
+                season_int = int(season) if season is not None else None
+            except (TypeError, ValueError):
+                season_int = None
+
+            try:
+                episode_int = int(episode) if episode is not None else None
+            except (TypeError, ValueError):
+                episode_int = None
+
+            try:
+                absolute_int = int(absolute_number) if absolute_number is not None else None
+            except (TypeError, ValueError):
+                absolute_int = None
+
+            # For daily-style episodes, match by aired date.
+            if aired_norm:
+                for ep in episodes:
+                    if isinstance(ep, dict) and ep.get('aired') == aired_norm:
+                        return True
+
+            # Treat episode==0/None as "no specific episode" (season packs, etc.)
+            if episode_int in (None, 0) and absolute_int is None and not aired_norm:
+                return True
+
+            for ep in episodes:
+                if not isinstance(ep, dict):
+                    continue
+
+                if absolute_int is not None and ep.get('absoluteNumber') == absolute_int:
+                    return True
+
+                if season_int is not None and episode_int not in (None, 0):
+                    if ep.get('seasonNumber') == season_int and ep.get('number') == episode_int:
+                        return True
+
+            return False
+
+        cache_path = None
+        if base_dir:
+            try:
+                cache_dir = Path(base_dir) / 'data' / 'tvdb'
+                cache_path = cache_dir / f"{series_id}.json"
+
+                if cache_path.exists():
+                    with cache_path.open('r', encoding='utf-8') as f:
+                        cached = json.load(f)
+
+                    if isinstance(cached, dict) and isinstance(cached.get('episodes'), list):
+                        if not _episode_is_present(cached.get('episodes', [])):
+                            if debug:
+                                console.print(
+                                    f"[yellow]Cached TVDB data for {series_id} does not include requested episode; refreshing from TVDB[/yellow]"
+                                )
+                        else:
+                            if debug:
+                                console.print(f"[cyan]Using cached TVDB episodes for {series_id}[/cyan]")
+
+                            episodes_data = {
+                                'episodes': cached.get('episodes', []),
+                                'aliases': cached.get('aliases', []) if isinstance(cached.get('aliases', []), list) else []
+                            }
+
+                            specific_alias = None
+                            if episodes_data.get('aliases'):
+                                year_pattern = re.compile(r'\((\d{4})\)')
+                                eng_aliases = [
+                                    alias['name'] for alias in episodes_data['aliases']
+                                    if isinstance(alias, dict) and alias.get('language') == 'eng' and year_pattern.search(alias.get('name', ''))
+                                ]
+                                if eng_aliases:
+                                    specific_alias = eng_aliases[-1]
+                                    if debug:
+                                        console.print(f"[blue]English alias with year: {specific_alias}[/blue]")
+
+                            return episodes_data, specific_alias
+            except Exception as cache_error:
+                if debug:
+                    console.print(f"[yellow]Failed to read TVDB cache for {series_id}: {cache_error}[/yellow]")
+
         try:
+            client = _get_tvdb_or_warn()
+            if client is None:
+                return None, None
+
             # Get all episodes for the series with pagination
             all_episodes = []
             page = 0
             max_pages = 20  # Safety limit to prevent infinite loops
+            pages_fetched = 0
 
             while page < max_pages:
                 if debug and page > 0:
                     console.print(f"[cyan]Fetching TVDB episodes page {page + 1}[/cyan]")
 
                 try:
-                    episodes_response = tvdb.get_series_episodes(
+                    episodes_response = client.get_series_episodes(
                         series_id,
                         season_type="default",
                         page=page,
@@ -111,6 +257,7 @@ class tvdb_data:
                         break
 
                     all_episodes.extend(current_episodes)
+                    pages_fetched += 1
 
                     if debug:
                         console.print(f"[cyan]Retrieved {len(current_episodes)} episodes from page {page + 1} (total: {len(all_episodes)})[/cyan]")
@@ -146,12 +293,39 @@ class tvdb_data:
             try:
                 if all_episodes:
                     # Get series details for aliases
-                    series_info = tvdb.get_series_extended(series_id)
+                    series_info = client.get_series_extended(series_id)
                     if 'aliases' in series_info:
                         episodes_data['aliases'] = series_info['aliases']
             except Exception as alias_error:
                 if debug:
                     console.print(f"[yellow]Could not retrieve series aliases: {alias_error}[/yellow]")
+
+            # If this was a multi-page series and we have a base_dir, cache results for next time.
+            if cache_path and pages_fetched > 1:
+                try:
+                    # Ensure cache dir exists; on POSIX explicitly apply typical dir perms.
+                    if os.name == 'posix':
+                        cache_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                        try:
+                            os.chmod(cache_path.parent, 0o700)
+                        except Exception:
+                            pass
+                    else:
+                        cache_path.parent.mkdir(parents=True, exist_ok=True)
+
+                    with cache_path.open('w', encoding='utf-8') as f:
+                        json.dump(episodes_data, f, ensure_ascii=False)
+
+                    if os.name == 'posix':
+                        try:
+                            os.chmod(cache_path, 0o644)
+                        except Exception:
+                            pass
+                    if debug:
+                        console.print(f"[green]Cached TVDB episodes to {cache_path}[/green]")
+                except Exception as cache_write_error:
+                    if debug:
+                        console.print(f"[yellow]Failed to write TVDB cache for {series_id}: {cache_write_error}[/yellow]")
 
             # Extract specific English alias only if it contains a year (e.g., "Cats eye (2025)")
             specific_alias = None
@@ -175,6 +349,10 @@ class tvdb_data:
             return None, None
 
     async def get_tvdb_by_external_id(self, imdb, tmdb, debug=False, tv_movie=False):
+        client = _get_tvdb_or_warn()
+        if client is None:
+            return None
+
         # Try IMDB first if available
         if imdb:
             try:
@@ -190,7 +368,7 @@ class tvdb_data:
                 if debug:
                     console.print(f"[cyan]Trying TVDB lookup with IMDB ID: {imdb_formatted}[/cyan]")
 
-                results = tvdb.search_by_remote_id(imdb_formatted)
+                results = client.search_by_remote_id(imdb_formatted)
                 await asyncio.sleep(0.1)
 
                 if results and len(results) > 0:
@@ -240,7 +418,7 @@ class tvdb_data:
                 if debug:
                     console.print(f"[cyan]Trying TVDB lookup with TMDB ID: {tmdb_str}[/cyan]")
 
-                results = tvdb.search_by_remote_id(tmdb_str)
+                results = client.search_by_remote_id(tmdb_str)
                 await asyncio.sleep(0.1)
 
                 if results and len(results) > 0:
@@ -289,7 +467,11 @@ class tvdb_data:
 
     async def get_imdb_id_from_tvdb_episode_id(self, episode_id, debug=False):
         try:
-            episode_data = tvdb.get_episode_extended(episode_id)
+            client = _get_tvdb_or_warn()
+            if client is None:
+                return None
+
+            episode_data = client.get_episode_extended(episode_id)
             if debug:
                 console.print(f"[yellow]Episode data retrieved for episode ID {episode_id}[/yellow]")
 
@@ -312,7 +494,7 @@ class tvdb_data:
             console.print(f"[red]Error getting IMDB ID from TVDB episode ID: {e}[/red]")
             return None
 
-    async def get_specific_episode_data(self, data, season, episode, debug=False):
+    async def get_specific_episode_data(self, data, season, episode, debug=False, aired_date=None):
         if debug:
             console.print("[yellow]Getting specific episode data from TVDB data[/yellow]")
 
@@ -344,6 +526,23 @@ class tvdb_data:
         if debug:
             console.print(f"[blue]Total episodes retrieved from TVDB: {len(episodes)}[/blue]")
             console.print(f"[blue]Looking for Season: {season_int}, Episode: {episode_int}[/blue]")
+
+        # For daily shows, match by air date if provided.
+        if aired_date:
+            aired_norm = str(aired_date).strip().replace('.', '-')
+            for ep in episodes:
+                if ep.get('aired') == aired_norm:
+                    if debug:
+                        console.print(f"[green]Matched daily episode by air date {aired_norm}: S{ep.get('seasonNumber'):02d}E{ep.get('number'):02d} - {ep.get('name')}[/green]")
+                    return (
+                        ep.get('seasonName'),
+                        ep.get('name'),
+                        ep.get('overview'),
+                        ep.get('seasonNumber'),
+                        ep.get('number'),
+                        ep.get('year'),
+                        ep.get('id')
+                    )
 
         # If episode_int is None or 0, return first episode of the season
         if episode_int is None or episode_int == 0:
