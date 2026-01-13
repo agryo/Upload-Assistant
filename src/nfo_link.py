@@ -3,8 +3,11 @@ import os
 import re
 import subprocess
 import datetime
+from typing import Any
 from src.console import console
-from data.config import config
+from data.config import config as _config
+
+config: dict[str, Any] = _config
 
 
 async def create_season_nfo(season_folder, season_number, season_year, tvdbid, tvmazeid, plot, outline):
@@ -273,8 +276,8 @@ async def linking(meta, movie_name, year):
             target_file = os.path.join(target_dir, filename)
 
             try:
-                cmd = f'mklink "{target_file}" "{src_file}"'
-                subprocess.run(cmd, check=True, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                cmd = ['cmd', '/c', 'mklink', target_file, src_file] if os.name == 'nt' else ['ln', '-s', src_file, target_file]
+                subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
                 if meta.get('debug'):
                     console.print(f"[green]Created symlink: {target_file}")
@@ -299,8 +302,8 @@ async def linking(meta, movie_name, year):
                     os.makedirs(target_file_dir, exist_ok=True)
 
                     try:
-                        cmd = f'mklink "{target_file}" "{src_file}"'
-                        subprocess.run(cmd, check=True, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        cmd = ['cmd', '/c', 'mklink', target_file, src_file] if os.name == 'nt' else ['ln', '-s', src_file, target_file]
+                        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
                         if meta.get('debug'):
                             console.print(f"[green]Created symlink: {file}")

@@ -22,6 +22,7 @@ class OE(UNIT3D):
         self.upload_url = f'{self.base_url}/api/torrents/upload'
         self.search_url = f'{self.base_url}/api/torrents/filter'
         self.torrent_url = f'{self.base_url}/torrents/'
+        self.approved_image_hosts = ['ptpimg', 'imgbox', 'imgbb', 'onlyimage', 'ptscreens', 'passtheimage']
         self.banned_groups = [
             '0neshot', '3LT0N', '4K4U', '4yEo', '$andra', '[Oj]', 'AFG', 'AkihitoSubs', 'Alcaide_Kira', 'AniHLS', 'Anime Time',
             'AnimeRG', 'AniURL', 'AOC', 'AR', 'AROMA', 'ASW', 'aXXo', 'BakedFish', 'BiTOR', 'BRrip', 'bonkai',
@@ -56,7 +57,6 @@ class OE(UNIT3D):
         return True
 
     async def check_image_hosts(self, meta):
-        approved_image_hosts = ['ptpimg', 'imgbox', 'imgbb', 'onlyimage', 'ptscreens', "passtheimage"]
         url_host_mapping = {
             "ibb.co": "imgbb",
             "ptpimg.me": "ptpimg",
@@ -67,7 +67,7 @@ class OE(UNIT3D):
             "img.passtheima.ge": "passtheimage",
         }
 
-        await check_hosts(meta, self.tracker, url_host_mapping=url_host_mapping, img_host_index=1, approved_image_hosts=approved_image_hosts)
+        await check_hosts(meta, self.tracker, url_host_mapping=url_host_mapping, img_host_index=1, approved_image_hosts=self.approved_image_hosts)
         return
 
     async def get_description(self, meta):
@@ -75,7 +75,7 @@ class OE(UNIT3D):
             base = await f.read()
 
         async with aiofiles.open(f"{meta['base_dir']}/tmp/{meta['uuid']}/[{self.tracker}]DESCRIPTION.txt", 'w', encoding='utf8') as descfile:
-            await process_desc_language(meta, descfile, tracker=self.tracker)
+            await process_desc_language(meta, tracker=self.tracker)
 
             bbcode = BBCODE()
             if meta.get('discs', []) != []:
@@ -159,7 +159,7 @@ class OE(UNIT3D):
                 oe_name = oe_name.replace(f"{video_codec}", f"{audio} {video_codec}", 1)
 
         if not meta.get('audio_languages'):
-            await process_desc_language(meta, desc=None, tracker=self.tracker)
+            await process_desc_language(meta, tracker=self.tracker)
         elif meta.get('audio_languages'):
             audio_languages = meta['audio_languages']
             if audio_languages and not await has_english_language(audio_languages) and not meta.get('is_disc') == "BDMV":
@@ -179,7 +179,7 @@ class OE(UNIT3D):
 
         return {'name': oe_name}
 
-    async def get_type_id(self, meta):
+    async def get_type_id(self, meta, type=None, reverse=False, mapping_only=False):
         video_codec = meta.get('video_codec', 'N/A')
 
         meta_type = meta['type']

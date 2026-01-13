@@ -3,14 +3,17 @@
 import aiofiles
 import httpx
 import os
+
+from cogs.redaction import redact_private_info
 from src.console import console
 from src.get_desc import DescriptionBuilder
 from src.rehostimages import check_hosts
 from src.trackers.COMMON import COMMON
+from typing import Any
 
 
 class DC:
-    def __init__(self, config):
+    def __init__(self, config: dict[str, Any]):
         self.config = config
         self.common = COMMON(config)
         self.tracker = 'DC'
@@ -18,12 +21,11 @@ class DC:
         self.api_base_url = f'{self.base_url}/api/v1/torrents'
         self.torrent_url = f'{self.base_url}/torrent/'
         self.banned_groups = ['']
+        self.approved_image_hosts = ['imgbox', 'imgbb', 'bhd', 'imgur', 'postimg', 'sharex']
         self.api_key = self.config['TRACKERS'][self.tracker].get('api_key')
-        self.session = httpx.AsyncClient(headers={
-            'X-API-KEY': self.api_key
-        }, timeout=30.0)
+        self.session = httpx.AsyncClient(headers={'X-API-KEY': self.api_key}, timeout=30.0)
 
-    async def mediainfo(self, meta):
+    async def mediainfo(self, meta: dict[str, Any]):
         if meta.get('is_disc') == 'BDMV':
             mediainfo = await self.common.get_bdmv_mediainfo(meta, remove=['File size', 'Overall bit rate'])
         else:
@@ -33,15 +35,15 @@ class DC:
 
         return mediainfo
 
-    async def generate_description(self, meta):
-        builder = DescriptionBuilder(self.config)
+    async def generate_description(self, meta: dict[str, Any]):
+        builder = DescriptionBuilder(self.tracker, self.config)
         desc_parts = []
 
         # Custom Header
-        desc_parts.append(await builder.get_custom_header(self.tracker))
+        desc_parts.append(await builder.get_custom_header())
 
         # TV
-        title, episode_image, episode_overview = await builder.get_tv_info(meta, self.tracker)
+        title, episode_image, episode_overview = await builder.get_tv_info(meta)
         if episode_overview:
             desc_parts.append(f'[center]{title}[/center]')
             desc_parts.append(f'[center]{episode_overview}[/center]')
@@ -81,7 +83,7 @@ class DC:
                 desc_parts.append(f"[center]{screenshots_block}[/center]")
 
         # Tonemapped Header
-        desc_parts.append(await builder.get_tonemapped_header(meta, self.tracker))
+        desc_parts.append(await builder.get_tonemapped_header(meta))
 
         # Signature
         desc_parts.append(f"[center][url=https://github.com/Audionut/Upload-Assistant]{meta['ua_signature']}[/url][/center]")
@@ -115,7 +117,7 @@ class DC:
 
         return description
 
-    async def get_category_id(self, meta):
+    async def get_category_id(self, meta: dict[str, Any]):
         resolution = meta.get('resolution', '')
         category = meta.get('category', '')
         is_disc = meta.get('is_disc', '')
@@ -149,7 +151,7 @@ class DC:
             return category_map[category].get(resolution)
         return None
 
-    async def search_existing(self, meta, disctype):
+    async def search_existing(self, meta: dict[str, Any], _):
         imdb_id = meta.get('imdb_info', {}).get('imdbID')
         category_id = await self.get_category_id(meta)
         if not imdb_id:
@@ -186,7 +188,7 @@ class DC:
 
         return []
 
-    async def edit_name(self, meta):
+    async def edit_name(self, meta: dict[str, Any]):
         """
         Edits the name according to DC's naming conventions.
         Scene uploads should use the scene name.
@@ -203,20 +205,20 @@ class DC:
 
         return dc_name
 
-    async def check_image_hosts(self, meta):
-        approved_image_hosts = ['imgbox', 'imgbb', 'bhd', 'imgur', 'postimg', 'digitalcore']
+    async def check_image_hosts(self, meta: dict[str, Any]):
         url_host_mapping = {
             'ibb.co': 'imgbb',
             'imgbox.com': 'imgbox',
             'beyondhd.co': 'bhd',
             'imgur.com': 'imgur',
             'postimg.cc': 'postimg',
-            'digitalcore.club': 'digitalcore'
+            'digitalcore.club': 'sharex',
+            'img.digitalcore.club': 'sharex'
         }
-        await check_hosts(meta, self.tracker, url_host_mapping=url_host_mapping, img_host_index=1, approved_image_hosts=approved_image_hosts)
+        await check_hosts(meta, self.tracker, url_host_mapping=url_host_mapping, img_host_index=1, approved_image_hosts=self.approved_image_hosts)
         return
 
-    async def fetch_data(self, meta):
+    async def fetch_data(self, meta: dict[str, Any]):
         anon = '1' if meta['anon'] or self.config['TRACKERS'][self.tracker].get('anon', False) else '0'
 
         data = {
@@ -234,10 +236,9 @@ class DC:
 
         return data
 
-    async def upload(self, meta, disctype):
+    async def upload(self, meta: dict[str, Any], _):
         data = await self.fetch_data(meta)
         torrent_title = await self.edit_name(meta)
-        status_message = ''
         response = None
 
         if not meta.get('debug', False):
@@ -256,7 +257,7 @@ class DC:
                     if response.status_code == 200 and response_data.get('id'):
                         torrent_id = str(response_data['id'])
                         meta['tracker_status'][self.tracker]['torrent_id'] = torrent_id + '/'
-                        status_message = response_data.get('message')
+                        meta['tracker_status'][self.tracker]['status_message'] = response_data.get('message')
 
                         await self.common.download_tracker_torrent(
                             meta,
@@ -264,24 +265,30 @@ class DC:
                             headers=self.session.headers,
                             downurl=f'{self.api_base_url}/download/{torrent_id}'
                         )
+                        return True
 
                     else:
-                        status_message = f"data error: {response_data.get('message', 'Unknown API error.')}"
+                        meta['tracker_status'][self.tracker]['status_message'] = f"data error: {response_data.get('message', 'Unknown API error.')}"
+                        return False
 
             except httpx.HTTPStatusError as e:
-                status_message = f'data error: HTTP {e.response.status_code} - {e.response.text}'
+                meta['tracker_status'][self.tracker]['status_message'] = f'data error: HTTP {e.response.status_code} - {e.response.text}'
+                return False
             except httpx.TimeoutException:
-                status_message = f'data error: Request timed out after {self.session.timeout.write} seconds'
+                meta['tracker_status'][self.tracker]['status_message'] = f'data error: Request timed out after {self.session.timeout.write} seconds'
+                return False
             except httpx.RequestError as e:
                 resp_text = getattr(getattr(e, 'response', None), 'text', 'No response received')
-                status_message = f'data error: Unable to upload. Error: {e}.\nResponse: {resp_text}'
+                meta['tracker_status'][self.tracker]['status_message'] = f'data error: Unable to upload. Error: {e}.\nResponse: {resp_text}'
+                return False
             except Exception as e:
                 resp_text = response.text if response is not None else 'No response received'
-                status_message = f'data error: It may have uploaded, go check. Error: {e}.\nResponse: {resp_text}'
-                return
+                meta['tracker_status'][self.tracker]['status_message'] = f'data error: It may have uploaded, go check. Error: {e}.\nResponse: {resp_text}'
+                return False
 
         else:
-            console.print(data)
-            status_message = 'Debug mode enabled, not uploading'
-
-        meta['tracker_status'][self.tracker]['status_message'] = status_message
+            console.print("[cyan]DC Request Data:")
+            console.print(redact_private_info(data))
+            meta['tracker_status'][self.tracker]['status_message'] = 'Debug mode enabled, not uploading'
+            await self.common.create_torrent_for_upload(meta, f"{self.tracker}" + "_DEBUG", f"{self.tracker}" + "_DEBUG", announce_url="https://fake.tracker")
+            return True  # Debug mode - simulated success

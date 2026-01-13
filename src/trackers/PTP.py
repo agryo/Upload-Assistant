@@ -6,19 +6,17 @@ import glob
 import httpx
 import json
 import platform
-import pickle
 import os
 import re
 import requests
 
 from pathlib import Path
 from pymediainfo import MediaInfo
-from torf import Torrent
-
+from typing import Union
 from cogs.redaction import redact_private_info
-from data.config import config
 from src.bbcode import BBCODE
 from src.console import console
+from src.cookie_auth import CookieValidator
 from src.exceptions import *  # noqa F403
 from src.rehostimages import check_hosts
 from src.takescreens import disc_screenshots, dvd_screenshots, screenshots
@@ -96,6 +94,8 @@ class PTP():
             ("Vietnamese", "vie", "vi"): 25,
         }
 
+        self.cookie_validator = CookieValidator(config)
+
     def _is_true(self, value):
         return str(value).strip().lower() in {"true", "1", "yes"}
 
@@ -111,7 +111,7 @@ class PTP():
             'User-Agent': self.user_agent
         }
         url = 'https://passthepopcorn.me/torrents.php'
-        response = requests.get(url, params=params, headers=headers)
+        response = requests.get(url, params=params, headers=headers, timeout=30)
         await asyncio.sleep(1)
         console.print(f"[green]Searching PTP for: [bold yellow]{filename}[/bold yellow]")
 
@@ -182,7 +182,7 @@ class PTP():
             'User-Agent': self.user_agent
         }
         url = 'https://passthepopcorn.me/torrents.php'
-        response = requests.get(url, params=params, headers=headers)
+        response = requests.get(url, params=params, headers=headers, timeout=30)
         await asyncio.sleep(1)
         try:
             if response.status_code == 200:
@@ -216,7 +216,7 @@ class PTP():
         }
         url = 'https://passthepopcorn.me/torrents.php'
         console.print(f"[yellow]Requesting description from {url} with ID {ptp_torrent_id}")
-        response = requests.get(url, params=params, headers=headers)
+        response = requests.get(url, params=params, headers=headers, timeout=30)
         await asyncio.sleep(1)
 
         ptp_desc = response.text
@@ -269,7 +269,7 @@ class PTP():
             'User-Agent': self.user_agent
         }
         url = 'https://passthepopcorn.me/torrents.php'
-        response = requests.get(url=url, headers=headers, params=params)
+        response = requests.get(url=url, headers=headers, params=params, timeout=30)
         await asyncio.sleep(1)
         try:
             response = response.json()
@@ -307,14 +307,20 @@ class PTP():
                             console.print("[yellow]User chose to skip all matches[/yellow]")
                             return None
 
-                        selected_index = choices.index(selected)
-                        selected_movie = movies[selected_index]
-                        groupID = selected_movie.get('GroupId')
+                        # Match selection directly to movie data to avoid index issues from cli_ui sorting
+                        groupID = None
+                        for movie in movies:
+                            title = movie.get('Title', 'Unknown')
+                            year = movie.get('Year', 'Unknown')
+                            group_id = movie.get('GroupId', 'Unknown')
+                            if f"{title} ({year}) - Group ID: {group_id}" == selected:
+                                groupID = group_id
+                                break
 
                         console.print(f"[green]User selected: Group ID [yellow]{groupID}[/yellow][/green]")
                         return groupID
 
-                    except (KeyboardInterrupt, cli_ui.Interrupted):
+                    except KeyboardInterrupt:
                         console.print("[yellow]Selection cancelled by user[/yellow]")
                         return None
             elif response.get("Page") == "Browse":  # No Releases on Site with ID
@@ -341,7 +347,7 @@ class PTP():
             'User-Agent': self.user_agent
         }
         url = "https://passthepopcorn.me/ajax.php"
-        response = requests.get(url=url, params=params, headers=headers)
+        response = requests.get(url=url, params=params, headers=headers, timeout=30)
         await asyncio.sleep(1)
         tinfo = {}
         try:
@@ -446,7 +452,7 @@ class PTP():
         headers = {'referer': 'https://ptpimg.me/index.php'}
         url = "https://ptpimg.me/upload.php"
 
-        response = requests.post(url, headers=headers, data=payload)
+        response = requests.post(url, headers=headers, data=payload, timeout=30)
         try:
             response = response.json()
             ptpimg_code = response[0]['code']
@@ -605,37 +611,36 @@ class PTP():
             "Hardcoded Subs (Non-English)": "OTHER"
         }
         opts = cli_ui.select_choices("Please select any/all applicable options:", choices=list(trumpable_values.keys()))
-        trumpable = []
+        trumpable_list: list[int] = []
         for opt in opts:
             v = trumpable_values.get(opt)
             if v is None:
                 continue
             elif v == 4:
-                trumpable.append(4)
+                trumpable_list.append(4)
                 if 3 not in sub_langs:
                     sub_langs.append(3)
                 if 44 in sub_langs:
                     sub_langs.remove(44)
             elif v == 50:
-                trumpable.append(50)
+                trumpable_list.append(50)
                 if 50 not in sub_langs:
                     sub_langs.append(50)
                 if 44 in sub_langs:
                     sub_langs.remove(44)
             elif v == 14:
-                trumpable.append(14)
+                trumpable_list.append(14)
             elif v == "OTHER":
-                trumpable.append(15)
-                hc_sub_langs = cli_ui.ask_string("Enter language code for HC Subtitle languages")
-                for lang, subID in self.sub_lang_map.items():
-                    if any(hc_sub_langs.strip() == x for x in list(lang)):
-                        if subID not in sub_langs:
+                trumpable_list.append(15)
+                hc_sub_langs = (cli_ui.ask_string("Enter language code for HC Subtitle languages") or "").strip()
+                if hc_sub_langs:
+                    for lang, subID in self.sub_lang_map.items():
+                        if any(hc_sub_langs == x for x in list(lang)) and subID not in sub_langs:
                             sub_langs.append(subID)
-        sub_langs = list(set(sub_langs))
-        trumpable = list(set(trumpable))
-        if not trumpable:
-            trumpable = None
-        return trumpable, sub_langs
+        sub_langs_result = list({*sub_langs})
+        trumpable_unique = list({*trumpable_list})
+        trumpable_result: Union[list[int], None] = trumpable_unique if trumpable_unique else None
+        return trumpable_result, sub_langs_result
 
     def get_remaster_title(self, meta):
         remaster_title = []
@@ -1189,7 +1194,7 @@ class PTP():
                             if not new_screens:
                                 try:
                                     await screenshots(
-                                        file, f"FILE_{i}", meta['uuid'], meta['base_dir'], meta, multi_screens, True, None)
+                                        file, f"FILE_{i}", meta['uuid'], meta['base_dir'], meta, multi_screens, True, "")
                                 except Exception as e:
                                     print(f"Error during generic screenshot capture: {e}")
                             new_screens = glob.glob1(f"{meta['base_dir']}/tmp/{meta['uuid']}", f"FILE_{i}-*.png")
@@ -1273,20 +1278,25 @@ class PTP():
     async def get_AntiCsrfToken(self, meta):
         if not os.path.exists(f"{meta['base_dir']}/data/cookies"):
             Path(f"{meta['base_dir']}/data/cookies").mkdir(parents=True, exist_ok=True)
-        cookiefile = f"{meta['base_dir']}/data/cookies/PTP.pickle"
+        cookiefile = f"{meta['base_dir']}/data/cookies/PTP.json"
         with requests.Session() as session:
             loggedIn = False
             if os.path.exists(cookiefile):
-                with open(cookiefile, 'rb') as cf:
-                    session.cookies.update(pickle.load(cf))
-                uploadresponse = session.get("https://passthepopcorn.me/upload.php")
+                self.cookie_validator._load_cookies_secure(session, cookiefile, self.tracker)
+                uploadresponse = session.get("https://passthepopcorn.me/upload.php", timeout=30)
                 loggedIn = await self.validate_login(uploadresponse)
             else:
                 console.print("[yellow]PTP Cookies not found. Creating new session.")
             if loggedIn is True:
-                AntiCsrfToken = re.search(r'data-AntiCsrfToken="(.*)"', uploadresponse.text).group(1)
+                token_match = re.search(r'data-AntiCsrfToken="(.*)"', uploadresponse.text)
+                if not token_match:
+                    raise LoginException("Failed to find AntiCsrfToken on upload page.")  # noqa F405
+                AntiCsrfToken = token_match.group(1)
             else:
-                passKey = re.match(r"https?://please\.passthepopcorn\.me:?\d*/(.+)/announce", self.announce_url).group(1)
+                passkey_match = re.match(r"https?://please\.passthepopcorn\.me:?\d*/(.+)/announce", self.announce_url)
+                if not passkey_match:
+                    raise LoginException("Failed to extract passkey from PTP announce URL.")  # noqa F405
+                passKey = passkey_match.group(1)
                 data = {
                     "username": self.username,
                     "password": self.password,
@@ -1308,12 +1318,23 @@ class PTP():
                         if resp["Result"] != "Ok":
                             raise LoginException("Failed to login to PTP. Probably due to the bad user name, password, announce url, or 2FA code.")  # noqa F405
                         AntiCsrfToken = resp["AntiCsrfToken"]
-                        with open(cookiefile, 'wb') as cf:
-                            pickle.dump(session.cookies, cf)
+                        self.cookie_validator._save_cookies_secure(session.cookies, cookiefile)
                     except Exception:
-                        raise LoginException(f"Got exception while loading JSON login response from PTP. Response: {loginresponse.text}")  # noqa F405
+                        try:
+                            parsed = json.loads(loginresponse.text)
+                            redacted = redact_private_info(parsed)
+                            redacted_text = json.dumps(redacted)
+                        except json.JSONDecodeError:
+                            redacted_text = redact_private_info(loginresponse.text)
+                        raise LoginException(f"Got exception while loading JSON login response from PTP. Response: {redacted_text}")  # noqa F405
                 except Exception:
-                    raise LoginException(f"Got exception while loading JSON login response from PTP. Response: {loginresponse.text}")  # noqa F405
+                    try:
+                        parsed = json.loads(loginresponse.text)
+                        redacted = redact_private_info(parsed)
+                        redacted_text = json.dumps(redacted)
+                    except json.JSONDecodeError:
+                        redacted_text = redact_private_info(loginresponse.text)
+                    raise LoginException(f"Got exception while loading JSON login response from PTP. Response: {redacted_text}")  # noqa F405
         return AntiCsrfToken
 
     async def validate_login(self, response):
@@ -1373,7 +1394,7 @@ class PTP():
                     english_audio = False
 
         ptp_trumpable = None
-        if meta['hardcoded-subs']:
+        if meta.get('hardcoded_subs'):
             ptp_trumpable, ptp_subtitles = self.get_trumpable(ptp_subtitles)
             if ptp_trumpable and 50 in ptp_trumpable:
                 ptp_trumpable.remove(50)
@@ -1467,8 +1488,14 @@ class PTP():
                     console.print("Valid tags can be found on the PTP upload form")
                     new_data["tags"] = console.input("Please enter at least one tag. Comma separated (action, animation, short):")
             data.update(new_data)
-            if meta["imdb_info"].get("directors", None) is not None:
-                data["artist[]"] = tuple(meta['imdb_info'].get('directors'))
+            imdb_info = meta.get("imdb_info")
+            directors: Union[list[str], tuple[str, ...], None] = None
+            if isinstance(imdb_info, dict):
+                directors_value = imdb_info.get('directors')
+                if isinstance(directors_value, (list, tuple)):
+                    directors = tuple(str(name) for name in directors_value if isinstance(name, str))
+            if directors:
+                data["artist[]"] = directors
                 data["importance[]"] = "1"
         else:  # Upload on existing group
             url = f"https://passthepopcorn.me/upload.php?groupid={groupID}"
@@ -1478,20 +1505,26 @@ class PTP():
 
     async def upload(self, meta, url, data, disctype):
         common = COMMON(config=self.config)
-        await common.create_torrent_for_upload(meta, self.tracker, self.source_flag)
+        base_piece_mb = int(meta.get('base_torrent_piece_mb', 0) or 0)
         torrent_file_path = f"{meta['base_dir']}/tmp/{meta['uuid']}/[{self.tracker}].torrent"
-        loop = asyncio.get_running_loop()
-        torrent = await loop.run_in_executor(None, Torrent.read, torrent_file_path)
 
         # Check if the piece size exceeds 16 MiB and regenerate the torrent if needed
-        if torrent.piece_size > 16777216:  # 16 MiB in bytes
+        if base_piece_mb > 16 and not meta.get('nohash', False):
             console.print("[red]Piece size is OVER 16M and does not work on PTP. Generating a new .torrent")
-            tracker_url = config['TRACKERS']['PTP'].get('announce_url', "https://fake.tracker").strip()
-            piece_size = '16'
+            tracker_url = self.announce_url.strip() if self.announce_url else "https://fake.tracker"
+            piece_size = 16
             torrent_create = f"[{self.tracker}]"
+            try:
+                cooldown = int(self.config.get('DEFAULT', {}).get('rehash_cooldown', 0) or 0)
+            except (ValueError, TypeError):
+                cooldown = 0
+            if cooldown > 0:
+                await asyncio.sleep(cooldown)  # Small cooldown before rehashing
 
-            await create_torrent(meta, meta['path'], torrent_create, tracker_url=tracker_url, piece_size=piece_size)
+            await create_torrent(meta, str(meta['path']), torrent_create, tracker_url=tracker_url, piece_size=piece_size)
             await common.create_torrent_for_upload(meta, self.tracker, self.source_flag, torrent_filename=torrent_create)
+        else:
+            await common.create_torrent_for_upload(meta, self.tracker, self.source_flag)
 
         # Proceed with the upload process
         with open(torrent_file_path, 'rb') as torrentFile:
@@ -1511,13 +1544,14 @@ class PTP():
                 console.log(url)
                 console.log(redact_private_info(debug_data))
                 meta['tracker_status'][self.tracker]['status_message'] = "Debug mode enabled, not uploading."
+                await common.create_torrent_for_upload(meta, f"{self.tracker}" + "_DEBUG", f"{self.tracker}" + "_DEBUG", announce_url="https://fake.tracker")
+                return True  # Debug mode - simulated success
             else:
                 failure_path = f"{meta['base_dir']}/tmp/{meta['uuid']}/[{self.tracker}]PTP_upload_failure.html"
                 with requests.Session() as session:
-                    cookiefile = f"{meta['base_dir']}/data/cookies/PTP.pickle"
-                    with open(cookiefile, 'rb') as cf:
-                        session.cookies.update(pickle.load(cf))
-                    response = session.post(url=url, data=data, headers=headers, files=files)
+                    cookiefile = f"{meta['base_dir']}/data/cookies/PTP.json"
+                    self.cookie_validator._load_cookies_secure(session, cookiefile, self.tracker)
+                    response = session.post(url=url, data=data, headers=headers, files=files, timeout=60)
                 console.print(f"[cyan]{response.url}")
                 responsetext = response.text
                 # If the response contains our announce URL, then we are on the upload page and the upload wasn't successful.
@@ -1538,8 +1572,10 @@ class PTP():
                     with open(failure_path, 'w', encoding='utf-8') as f:
                         f.write(responsetext)
                     meta['tracker_status'][self.tracker]['status_message'] = f"data error: see {failure_path}"
+                    return False
 
                 # having UA add the torrent link as a comment.
                 if match:
                     meta['tracker_status'][self.tracker]['status_message'] = response.url
                     await common.create_torrent_ready_to_seed(meta, self.tracker, self.source_flag, self.announce_url, response.url)
+                    return True

@@ -1,6 +1,6 @@
 # Upload Assistant © 2025 Audionut & wastaken7 — Licensed under UAPL v1.0
 # -*- coding: utf-8 -*-
-from typing import Literal
+from typing import Any, Literal, Union
 import asyncio
 import aiofiles
 import certifi
@@ -17,7 +17,7 @@ from src.languages import process_desc_language
 from src.trackers.COMMON import COMMON
 from src.trackers.UNIT3D import UNIT3D
 
-_shri_session_data = {}
+_shri_session_data: dict[str, dict[str, Union[str, None]]] = {}
 
 
 class SHRI(UNIT3D):
@@ -91,7 +91,7 @@ class SHRI(UNIT3D):
         - DISC region injection
         """
         if not meta.get("language_checked", False):
-            await process_desc_language(meta, desc=None, tracker=self.tracker)
+            await process_desc_language(meta, tracker=self.tracker)
 
         # Title and basic info
         title = meta.get("title", "")
@@ -251,13 +251,13 @@ class SHRI(UNIT3D):
         name = self.WHITESPACE_PATTERN.sub(" ", name).strip()
 
         # Extract tag and append if valid
-        tag = self._extract_clean_release_group(meta, name)
+        tag = self._extract_clean_release_group(meta)
         if tag:
             name = f"{name}-{tag}"
 
         return {"name": name}
 
-    def _extract_clean_release_group(self, meta, current_name):
+    def _extract_clean_release_group(self, meta):
         """Extract release group - only accepts VU/UNTOUCHED markers from filename"""
         tag = meta.get("tag", "").strip().lstrip("-")
         if tag and " " not in tag and not self.INVALID_TAG_PATTERN.search(tag):
@@ -380,7 +380,7 @@ class SHRI(UNIT3D):
                 "_shri_distributor_id": distributor_id if distributor_name else None,
             }
 
-        return await super().get_additional_checks(meta)
+        return await super().get_additional_checks(meta)  # type: ignore
 
     async def get_region_id(self, meta):
         """Override to use validated region ID stored in meta"""
@@ -430,7 +430,7 @@ class SHRI(UNIT3D):
             encoded_lib = str(general.get("Encoded_Library", "")).lower()
 
             if "makemkv" in encoded_app or "makemkv" in encoded_lib:
-                video = next((t for t in mi if t.get("@type") == "Video"), {})
+                video: dict[str, Any] = next((t for t in mi if t.get("@type") == "Video"), {})
                 settings = video.get("Encoded_Library_Settings")
                 if not settings or isinstance(settings, dict):
                     return True
@@ -922,8 +922,8 @@ class SHRI(UNIT3D):
             tracks = mi.get("track", [])
 
             # Parse track types
-            general = next((t for t in tracks if t.get("@type") == "General"), {})
-            video = next((t for t in tracks if t.get("@type") == "Video"), {})
+            general: dict[str, Any] = next((t for t in tracks if t.get("@type") == "General"), {})
+            video: dict[str, Any] = next((t for t in tracks if t.get("@type") == "Video"), {})
             audio_tracks = [t for t in tracks if t.get("@type") == "Audio"]
             text_tracks = [t for t in tracks if t.get("@type") == "Text"]
 
@@ -1120,7 +1120,7 @@ class SHRI(UNIT3D):
             "unknown",
             "unk",
         ]:
-            shoutouts = f"SHOUTOUTS : {random.choice(pirate_shouts)}"
+            shoutouts = f"SHOUTOUTS : {random.choice(pirate_shouts)}"  # nosec B311
         else:
             shoutouts = f"SHOUTOUTS : {release_group}"
         logo_section = (

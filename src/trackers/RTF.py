@@ -35,7 +35,7 @@ class RTF():
     async def upload(self, meta, disctype):
         common = COMMON(config=self.config)
         await common.create_torrent_for_upload(meta, self.tracker, self.source_flag)
-        await DescriptionBuilder(self.config).unit3d_edit_desc(meta, self.tracker, self.forum_link)
+        await DescriptionBuilder(self.tracker, self.config).unit3d_edit_desc(meta, signature=self.forum_link)
         if meta['bdinfo'] is not None:
             mi_dump = None
             async with aiofiles.open(f"{meta['base_dir']}/tmp/{meta['uuid']}/BD_SUMMARY_00.txt", 'r', encoding='utf-8') as f:
@@ -56,7 +56,7 @@ class RTF():
             # 'description' : meta['overview'] + "\n\n" + desc + "\n\n" + "Uploaded by L4G Upload Assistant",
             'description': "this is a description",
             # editing mediainfo so that instead of 1 080p its 1,080p as site mediainfo parser wont work other wise.
-            'mediaInfo': re.sub(r"(\d+)\s+(\d+)", r"\1,\2", mi_dump) if bd_dump is None else f"{bd_dump}",
+            'mediaInfo': re.sub(r"(\d+)\s+(\d+)", r"\1,\2", mi_dump or "") if bd_dump is None else f"{bd_dump}",
             "nfo": "",
             "url": str(meta.get('imdb_info', {}).get('imdb_url', '') + '/'),
             # auto pulled from IMDB
@@ -92,17 +92,20 @@ class RTF():
                         await common.create_torrent_ready_to_seed(meta, self.tracker, self.source_flag,
                                                                   self.config['TRACKERS'][self.tracker].get('announce_url'),
                                                                   "https://retroflix.club/browse/t/" + str(t_id))
+                        return True
 
                     except Exception:
                         console.print("It may have uploaded, go check")
-                        return
+                        return False
             except httpx.TimeoutException:
                 meta['tracker_status'][self.tracker]['status_message'] = "data error: RTF request timed out while uploading."
+                return False
             except httpx.RequestError as e:
                 meta['tracker_status'][self.tracker]['status_message'] = f"data error: An error occurred while making the request: {e}"
+                return False
             except Exception:
                 meta['tracker_status'][self.tracker]['status_message'] = "data error - It may have uploaded, go check"
-                return
+                return False
 
         else:
             console.print("[cyan]RTF Request Data:")
@@ -111,6 +114,8 @@ class RTF():
                 debug_data['file'] = debug_data['file'][:10] + '...'
             console.print(debug_data)
             meta['tracker_status'][self.tracker]['status_message'] = "Debug mode enabled, not uploading."
+            await common.create_torrent_for_upload(meta, f"{self.tracker}" + "_DEBUG", f"{self.tracker}" + "_DEBUG", announce_url="https://fake.tracker")
+            return True  # Debug mode - simulated success
 
     async def search_existing(self, meta, disctype):
         genres = f"{meta.get('keywords', '')} {meta.get('combined_genres', '')}"
@@ -153,7 +158,8 @@ class RTF():
         if meta.get('category') == "TV":
             year = most_recent_year
         if datetime.date.today().year - year <= 9:
-            console.print("[red]Content must be older than 10 Years to upload at RTF")
+            if not meta.get('unattended', False):
+                console.print("[red]Content must be older than 10 Years to upload at RTF")
             meta['skipping'] = "RTF"
             return []
 

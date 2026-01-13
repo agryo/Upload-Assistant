@@ -1,4 +1,8 @@
-[![Create and publish a Docker image](https://github.com/Audionut/Upload-Assistant/actions/workflows/docker-image.yml/badge.svg?branch=master)](https://github.com/Audionut/Upload-Assistant/actions/workflows/docker-image.yml) [![Test run (Master Branch)](https://img.shields.io/github/actions/workflow/status/Audionut/Upload-Assistant/test-run.yaml?branch=master&label=Test%20run%20(Master%20Branch%202025-12-21%2000:45%20UTC))](https://github.com/Audionut/Upload-Assistant/actions/workflows/test-run.yaml?query=branch%3Amaster)
+[![Create and publish a Docker image](https://github.com/Audionut/Upload-Assistant/actions/workflows/docker-image.yml/badge.svg?branch=master)](https://github.com/Audionut/Upload-Assistant/actions/workflows/docker-image.yml)
+[![Python Code Analysis](https://github.com/Audionut/Upload-Assistant/actions/workflows/python-code-analysis.yml/badge.svg?branch=master)](https://github.com/Audionut/Upload-Assistant/actions/workflows/python-code-analysis.yml)
+[![Python](https://img.shields.io/badge/python-3.9%20%7C%203.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)](https://www.python.org/downloads/)
+[![Security: Bandit](https://img.shields.io/badge/security-bandit-yellow.svg)](https://github.com/PyCQA/bandit)
+[![Security: Safety](https://img.shields.io/badge/security-safety-green.svg)](https://github.com/pyupio/safety)
 
 Discord support https://discord.gg/QHHAZu7e2A
 
@@ -33,38 +37,37 @@ Many thanks to all who have contributed.
 |Name|Acronym|Name|Acronym|
 |-|:-:|-|:-:|
 |Aither|AITHER|Alpharatio|AR|
-|AmigosShareClub|ASC|AnimeLovers|AL|
-|Anthelion|ANT|AsianCinema|ACM|
-|AvistaZ|AZ|Beyond-HD|BHD|
-|BitHDTV|BHDTV|Blutopia|BLU|
-|BrasilJapão-Share|BJS|BrasilTracker|BT|
-|CapybaraBR|CBR|Cinematik|TIK|
-|CinemaZ|CZ|DarkPeers|DP|
-|DigitalCore|DC|Emuwarez|EMUW|
-|FearNoPeer|FNP|FileList|FL|
-|Friki|FRIKI|FunFile|FF|
-|GreatPosterWall|GPW|hawke-uno|HUNO|
-|HDBits|HDB|HD-Space|HDS|
-|HD-Torrents|HDT|HomieHelpDesk|HHD|
-|ImmortalSeed|IS|InfinityHD|IHD|
-|ItaTorrents|ITT|LastDigitalUnderground|LDU|
-|Lat-Team|LT|Locadora|LCD|
-|LST|LST|MoreThanTV|MTV|
-|Nebulance|NBL|OldToonsWorld|OTW|
-|OnlyEncodes+|OE|PassThePopcorn|PTP|
-|PolishTorrent|PTT|Portugas|PT|
-|PTerClub|PTER|PrivateHD|PHD|
-|PTSKIT|PTS|Racing4Everyone|R4E|
-|Rastastugan|RAS|ReelFLiX|RF|
-|RetroFlix|RTF|Samaritano|SAM|
-|seedpool|SP|ShareIsland|SHRI|
-|SkipTheCommerials|STC|SpeedApp|SPD|
-|Swarmazon|SN|TorrentHR|THR|
-|Torrenteros|TTR|TorrentLeech|TL|
+|Amigos-Share|ASC|Anthelion|ANT|
+|AsianCinema|ACM|AvistaZ|AZ|
+|Beyond-HD|BHD|BitHDTV|BHDTV|
+|Blutopia|BLU|BrasilJapão-Share|BJS|
+|BrasilTracker|BT|CapybaraBR|CBR|
+|Cinematik|TIK|CinemaZ|CZ|
+|DarkPeers|DP|DigitalCore|DC|
+|Emuwarez|EMUW|FearNoPeer|FNP|
+|FileList|FL|Friki|FRIKI|
+|FunFile|FF|GreatPosterWall|GPW|
+|hawke-uno|HUNO|HDBits|HDB|
+|HD-Space|HDS|HD-Torrents|HDT|
+|HomieHelpDesk|HHD|ImmortalSeed|IS|
+|InfinityHD|IHD|ItaTorrents|ITT|
+|LastDigitalUnderground|LDU|Lat-Team|LT|
+|Locadora|LCD|LST|LST|
+|MoreThanTV|MTV|Nebulance|NBL|
+|OldToonsWorld|OTW|OnlyEncodes+|OE|
+|PassThePopcorn|PTP|PolishTorrent|PTT|
+|Portugas|PT|PTerClub|PTER|
+|PrivateHD|PHD|PTSKIT|PTS|
+|Racing4Everyone|R4E|Rastastugan|RAS|
+|ReelFLiX|RF|RetroFlix|RTF|
+|Samaritano|SAM|seedpool|SP|
+|ShareIsland|SHRI|SkipTheCommerials|STC|
+|SpeedApp|SPD|Swarmazon|SN|
 |The Leach Zone|TLZ|ToTheGlory|TTG|
-|TVChaosUK|TVC|ULCX|ULCX|
-|UTOPIA|UTP|YOiNKED|YOINK|
-|YUSCENE|YUS|||
+|TorrentHR|THR|Torrenteros|TTR|
+|TorrentLeech|TL|TVChaosUK|TVC|
+|ULCX|ULCX|UTOPIA|UTP|
+|YOiNKED|YOINK|YUSCENE|YUS|
 
 ## **Setup:**
    - **REQUIRES AT LEAST PYTHON 3.9 AND PIP3**
@@ -88,7 +91,7 @@ Many thanks to all who have contributed.
    - From the installation directory, run `python3 config-generator.py`
    - OR
    - Copy and Rename `data/example-config.py` to `data/config.py`
-   - Edit `config.py` to use your information (more detailed information in the [wiki](https://github.com/Audionut/Upload-Assistant/wiki))
+   - Edit `config.py` to use your information (more detailed information in example config options: [docs/example-config.md](docs/example-config.md))
       - tmdb_api key can be obtained from https://www.themoviedb.org/settings/api
       - image host api keys can be obtained from their respective sites
 
@@ -110,11 +113,15 @@ Many thanks to all who have contributed.
 
   Args are OPTIONAL and ALWAYS follow path, for a list of acceptable args, pass `--help`.
   Path works best in quotes.
+  - CLI arguments: [docs/cli-args.md](docs/cli-args.md)
 
 ## **Docker Usage:**
-  Visit our wonderful [docker usage wiki page](https://github.com/Audionut/Upload-Assistant/wiki/Docker)
+  Visit our wonderful [docker usage](docs/docker-wiki-full.md)
 
   Also see this excellent video put together by a community member https://videos.badkitty.zone/ua
+
+  Web UI setup (Docker GUI / Unraid): [docs/docker-gui-wiki-full.md](docs/docker-gui-wiki-full.md)
+  Web UI docs: [docs/web-ui.md](docs/web-ui.md)
 
 ## **Attributions:**
 
@@ -122,6 +129,7 @@ Built with updated BDInfoCLI from https://github.com/rokibhasansagar/BDInfoCLI-n
 
 <p>
   <a href="https://github.com/autobrr/mkbrr"><img src="https://github.com/autobrr/mkbrr/blob/main/.github/assets/mkbrr-dark.png?raw=true" alt="mkbrr" height="40px;"></a>&nbsp;&nbsp;
+  <a href="https://github.com/autobrr/qui"><img src="https://github.com/autobrr/qui/blob/develop/documentation/static/img/qui.png?raw=true" alt="qui" height="40px;"></a>&nbsp;&nbsp;
   <a href="https://ffmpeg.org/"><img src="https://i.postimg.cc/xdj3BS7S/FFmpeg-Logo-new-svg.png" alt="FFmpeg" height="40px;"></a>&nbsp;&nbsp;
   <a href="https://mediaarea.net/en/MediaInfo"><img src="https://i.postimg.cc/vTkjXmHh/Media-Info-Logo-svg.png" alt="Mediainfo" height="40px;"></a>&nbsp;&nbsp;
   <a href="https://www.themoviedb.org/"><img src="https://i.postimg.cc/1tpXHx3k/blue-square-2-d537fb228cf3ded904ef09b136fe3fec72548ebc1fea3fbbd1ad9e36364db38b.png" alt="TMDb" height="40px;"></a>&nbsp;&nbsp;

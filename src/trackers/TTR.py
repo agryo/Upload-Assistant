@@ -7,6 +7,7 @@ from src.trackers.UNIT3D import UNIT3D
 
 
 class TTR(UNIT3D):
+
     def __init__(self, config):
         super().__init__(config, tracker_name='TTR')
         self.config = config
@@ -18,11 +19,12 @@ class TTR(UNIT3D):
         self.search_url = f'{self.base_url}/api/torrents/filter'
         self.torrent_url = f'{self.base_url}/torrents/'
         self.banned_groups = []
+        self.ttr_name = ''  # Initialize instance variable
         pass
 
     async def get_name(self, meta):
         try:
-            name = TTR.ttr_name
+            name = self.ttr_name
         except AttributeError:
             name = await self.build_name(meta)
 
@@ -103,7 +105,7 @@ class TTR(UNIT3D):
         if tag:
             name += tag
 
-        TTR.ttr_name = name
+        self.ttr_name = name
 
         return name
 
@@ -116,7 +118,7 @@ class TTR(UNIT3D):
 
     async def get_additional_checks(self, meta):
         if not meta.get("language_checked", False):
-            await process_desc_language(meta, desc=None, tracker=self.tracker)
+            await process_desc_language(meta, tracker=self.tracker)
 
         if "Spanish" not in meta.get('audio_languages', []):
             if "Spanish" not in meta.get('subtitle_languages', []):

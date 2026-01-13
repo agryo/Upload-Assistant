@@ -7,6 +7,7 @@ import os
 import re
 import unicodedata
 from bs4 import BeautifulSoup
+from cogs.redaction import redact_private_info
 from src.bbcode import BBCODE
 from src.console import console
 from src.get_desc import DescriptionBuilder
@@ -97,7 +98,7 @@ class GPW():
 
     async def get_subtitle(self, meta):
         if not meta.get('language_checked', False):
-            await process_desc_language(meta, desc=None, tracker=self.tracker)
+            await process_desc_language(meta, tracker=self.tracker)
 
         found_language_strings = meta.get('subtitle_languages', [])
 
@@ -108,7 +109,7 @@ class GPW():
 
     async def get_ch_dubs(self, meta):
         if not meta.get('language_checked', False):
-            await process_desc_language(meta, desc=None, tracker=self.tracker)
+            await process_desc_language(meta, tracker=self.tracker)
 
         found_language_strings = meta.get('audio_languages', [])
 
@@ -187,14 +188,14 @@ class GPW():
         return
 
     async def get_release_desc(self, meta):
-        builder = DescriptionBuilder(self.config)
+        builder = DescriptionBuilder(self.tracker, self.config)
         desc_parts = []
 
         # Custom Header
-        desc_parts.append(await builder.get_custom_header(self.tracker))
+        desc_parts.append(await builder.get_custom_header())
 
         # Logo
-        logo, logo_size = await builder.get_logo_section(meta, self.tracker)
+        logo, logo_size = await builder.get_logo_section(meta)
         if logo and logo_size:
             desc_parts.append(f'[center][img={logo_size}]{logo}[/img][/center]')
 
@@ -206,7 +207,7 @@ class GPW():
         desc_parts.append(await builder.get_user_description(meta))
 
         # Disc menus screenshots header
-        desc_parts.append(await builder.menu_screenshot_header(meta, self.tracker))
+        desc_parts.append(await builder.menu_screenshot_header(meta))
 
         # Disc menus screenshots
         if f'{self.tracker}_menu_images_key' in meta:
@@ -220,7 +221,7 @@ class GPW():
             desc_parts.append('[center]\n' + menu_screenshots_block + '[/center]')
 
         # Screenshot Header
-        desc_parts.append(await builder.screenshot_header(self.tracker))
+        desc_parts.append(await builder.screenshot_header())
 
         # Screenshots
         if f'{self.tracker}_images_key' in meta:
@@ -234,7 +235,7 @@ class GPW():
             desc_parts.append('[center]\n' + screenshots_block + '[/center]')
 
         # Tonemapped Header
-        desc_parts.append(await builder.get_tonemapped_header(meta, self.tracker))
+        desc_parts.append(await builder.get_tonemapped_header(meta))
 
         # Signature
         desc_parts.append(f"[align=right][url=https://github.com/Audionut/Upload-Assistant][size=1]{meta['ua_signature']}[/size][/url][/align]")
@@ -347,15 +348,21 @@ class GPW():
 
                     for torrent_row in torrent_table.find_all('tr', class_='TableTorrent-rowTitle'):
                         title_link = torrent_row.find('a', href=re.compile(r'torrentid=\d+'))
-                        if not title_link or not title_link.get('data-tooltip'):
+                        if not title_link:
                             continue
 
-                        name = title_link['data-tooltip']
+                        tooltip_value = title_link.get('data-tooltip')
+                        if not isinstance(tooltip_value, str):
+                            continue
+
+                        name = tooltip_value
 
                         size_cell = torrent_row.find('td', class_='TableTorrent-cellStatSize')
                         size = size_cell.get_text(strip=True) if size_cell else None
 
-                        match = re.search(r'torrentid=(\d+)', title_link['href'])
+                        href_value = title_link.get('href')
+                        href_text = href_value if isinstance(href_value, str) else ''
+                        match = re.search(r'torrentid=(\d+)', href_text)
                         torrent_link = f'{self.torrent_url}{match.group(1)}' if match else None
 
                         dupe_entry = {
@@ -402,7 +409,8 @@ class GPW():
                 resolution = '2160p'
 
             if not resolution:
-                slot_type_tag = row.find('td', class_='TableTorrent-cellEmptySlotNote').find('i')
+                slot_cell = row.find('td', class_='TableTorrent-cellEmptySlotNote')
+                slot_type_tag = slot_cell.find('i') if slot_cell else None
                 if slot_type_tag:
                     resolution = slot_type_tag.get_text(strip=True).replace('empty slots:', '').strip()
 
@@ -416,7 +424,9 @@ class GPW():
 
             span_tags = row.find_all('span', class_='tooltipstered')
             for tag in span_tags:
-                slot_names.append(tag.find('i').get_text(strip=True))
+                icon = tag.find('i')
+                if icon:
+                    slot_names.append(icon.get_text(strip=True))
 
             final_slots_list = sorted(list(set(slot_names)))
             formatted_slots = [f'- {slot}' for slot in final_slots_list]
@@ -763,7 +773,7 @@ class GPW():
             'source_other': '',
             'source': await self.get_source(meta),
             'submit': 'true',
-            'subtitle_type': ('2' if meta.get('hardcoded-subs', False) else '1' if meta.get('subtitle_languages', []) else '3'),
+            'subtitle_type': ('2' if meta.get('hardcoded_subs', False) else '1' if meta.get('subtitle_languages', []) else '3'),
             'subtitles[]': await self.get_subtitle(meta),
         })
 
@@ -794,7 +804,6 @@ class GPW():
     async def upload(self, meta, disctype):
         await self.common.create_torrent_for_upload(meta, self.tracker, self.source_flag)
         data = await self.fetch_data(meta, disctype)
-        status_message = ''
 
         if not meta.get('debug', False):
             response_data = ''
@@ -812,20 +821,23 @@ class GPW():
 
                         torrent_id = str(response_data['response']['torrent_id'])
                         meta['tracker_status'][self.tracker]['torrent_id'] = torrent_id
-                        status_message = 'Torrent uploaded successfully.'
+                        meta['tracker_status'][self.tracker]['status_message'] = 'Torrent uploaded successfully.'
+                        await self.common.create_torrent_ready_to_seed(meta, self.tracker, self.source_flag, self.announce, self.torrent_url + torrent_id)
+                        return True
 
                 except httpx.TimeoutException:
                     meta['tracker_status'][self.tracker]['status_message'] = 'data error: Request timed out after 10 seconds'
+                    return False
                 except httpx.RequestError as e:
                     meta['tracker_status'][self.tracker]['status_message'] = f'data error: Unable to upload. Error: {e}.\nResponse: {response_data}'
+                    return False
                 except Exception as e:
                     meta['tracker_status'][self.tracker]['status_message'] = f'data error: It may have uploaded, go check. Error: {e}.\nResponse: {response_data}'
-                    return
-
-            await self.common.create_torrent_ready_to_seed(meta, self.tracker, self.source_flag, self.announce, self.torrent_url + torrent_id)
+                    return False
 
         else:
-            console.print(data)
-            status_message = 'Debug mode enabled, not uploading.'
-
-        meta['tracker_status'][self.tracker]['status_message'] = status_message
+            console.print("[cyan]GPW Request Data:")
+            console.print(redact_private_info(data))
+            meta['tracker_status'][self.tracker]['status_message'] = 'Debug mode enabled, not uploading.'
+            await self.common.create_torrent_for_upload(meta, f"{self.tracker}" + "_DEBUG", f"{self.tracker}" + "_DEBUG", announce_url="https://fake.tracker")
+            return True
