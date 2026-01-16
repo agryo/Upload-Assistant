@@ -2223,7 +2223,7 @@ class Clients():
                 else:
                     qbt_client = potential_qbt_client
 
-            search_term = meta['uuid']
+            search_term = meta['uuid'].replace('[', '.').replace(']', '.')
             try:
                 if proxy_url:
                     # Build qui's enhanced filter options with expression support
@@ -3161,6 +3161,7 @@ async def match_tracker_url(tracker_urls, meta):
         'thr': ["torrenthr"],
         'tl': ["tracker.tleechreload", "tracker.torrentleech"],
         'tlz': ["https://tlzdigital.com/"],
+        'tos': ["https://theoldschool.cc"],
         'ttr': ["https://torrenteros.org"],
         'tvc': ["https://tvchaosuk.com"],
         'ulcx': ["https://upload.cx"],
