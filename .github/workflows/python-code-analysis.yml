@@ -90,7 +90,7 @@ jobs:
                 if spec and spec.loader:
                     module = importlib.util.module_from_spec(spec)
                     spec.loader.exec_module(module)
-          except BaseException:
+            except BaseException:
                 # Ignore import/runtime errors during deprecation scanning
                 continue
 
@@ -203,8 +203,8 @@ jobs:
       continue-on-error: true
       run: |
         echo "Running dependency security check with Safety..."
-        pip install safety
-        safety scan > safety-results-${{ matrix.python-version }}.txt 2>&1 || echo "Safety scan completed with results saved"
+        pip install "safety==2.3.5"
+        safety check -r requirements.txt --full-report > safety-results-${{ matrix.python-version }}.txt 2>&1 || echo "Safety scan completed with results saved"
         
         # Display results
         cat safety-results-${{ matrix.python-version }}.txt
