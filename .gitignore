@@ -11,6 +11,7 @@ data/web_ui/static/js/*.js
 data/web_ui/*.py
 requirements.txt
 docker-compose.yml
+UA Argumentos.pdf
 Dockerfile
 bin/mkbrr/*
 *.mkv
