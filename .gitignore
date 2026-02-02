@@ -14,6 +14,7 @@ docker-compose.yml
 UA Argumentos.pdf
 Dockerfile
 bin/mkbrr/*
+bin/bdinfo/*
 *.mkv
 .vscode/
 __pycache__/
