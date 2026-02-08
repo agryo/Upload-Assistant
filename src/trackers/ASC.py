@@ -370,7 +370,7 @@ class ASC:
 
         async def append_section(key: str, content: Union[str, None]) -> None:
             if content and (img := layout_image.get(key)):
-                description_parts.append(f'\n{await self.format_image(img)}')
+                description_parts.append(f'{await self.format_image(img)}')
                 description_parts.append(f'\n{content}\n')
 
         # Title
@@ -380,9 +380,9 @@ class ASC:
                 for i in range(1, 4)
             ]
         )
-        description_parts.append(f"\n{await self.format_image(layout_image.get('BARRINHA_APRESENTA'))}\n")
-        # Título personalizado (No inicio do build_description)
-        description_parts.append(f"\n[color=#FF8C00][b][size=6]{await self.get_title(meta)}[/size][/b][/color]\n")
+
+        # Título personalizado
+        description_parts.append(f"{await self.format_image(layout_image.get('BARRINHA_APRESENTA'))}\n\n[color=#FF8C00][b][size=6]{await self.get_title(meta)}[/size][/b][/color]\n")
 
         # Poster
         season_tmdb = self.season_tmdb_data
