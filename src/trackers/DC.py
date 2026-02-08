@@ -98,6 +98,11 @@ class DC:
         tonemapped_header = await builder.get_tonemapped_header(meta)
         desc_parts.append(tonemapped_header)
 
+        # MediaInfo/BDinfo
+        fileinfo_dump = await self.mediainfo(meta)
+        if fileinfo_dump:
+            desc_parts.append(f"[spoiler=[c]Informações do Arquivo[/c]]\n{fileinfo_dump}[/spoiler]\n")
+
         # Signature
         desc_parts.append(f"[center][url=https://github.com/Audionut/Upload-Assistant]{meta['ua_signature']}[/url][/center]")
 
@@ -120,7 +125,6 @@ class DC:
         description = description.replace('[ul]', '').replace('[/ul]', '')
         description = description.replace('[ol]', '').replace('[/ol]', '')
         description = description.replace('[*] ', '• ').replace('[*]', '• ')
-        description = bbcode.convert_named_spoiler_to_normal_spoiler(description)
         description = bbcode.convert_comparison_to_centered(description, 1000)
         description = description.strip()
         description = bbcode.remove_extra_lines(description)
