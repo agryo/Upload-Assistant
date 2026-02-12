@@ -342,19 +342,28 @@ class ASC:
 
     async def get_title(self, meta: dict[str, Any]) -> str:
         name = meta['title']
-        base_name = name
+        # Apply title case to the original title, handling non-string values
+        name_cased = name.title() if isinstance(name, str) else name
+        base_name = name_cased
 
         if meta['category'] == 'TV':
             tv_title_ptbr = self.main_tmdb_data.get('name')
-            if tv_title_ptbr and tv_title_ptbr.lower() != name.lower():
-                base_name = f"{tv_title_ptbr} ({name})"
+
+            if isinstance(tv_title_ptbr, str):
+                tv_title_ptbr_cased = tv_title_ptbr.title()
+                # Compare original (case-insensitive) to decide if we need to combine titles
+                if tv_title_ptbr.lower() != (name.lower() if isinstance(name, str) else name):
+                    base_name = f"{tv_title_ptbr_cased} ({name_cased})"
 
             return f"{base_name} - {meta.get('season', '')}{meta.get('episode', '')}"
 
         else:
             movie_title_ptbr = self.main_tmdb_data.get('title')
-            if movie_title_ptbr and movie_title_ptbr.lower() != name.lower():
-                base_name = f"{movie_title_ptbr} ({name})"
+            if isinstance(movie_title_ptbr, str):
+                movie_title_ptbr_cased = movie_title_ptbr.title()
+                # Compare original (case-insensitive) to decide if we need to combine titles
+                if movie_title_ptbr.lower() != (name.lower() if isinstance(name, str) else name):
+                    base_name = f"{movie_title_ptbr_cased} ({name_cased})"
 
             return f"{base_name}"
 
