@@ -1,21 +1,16 @@
-<<<<<<< HEAD
+### NOTA:
+- O desenvolvimento deste projeto está congelado. Apenas bugs críticos serão corrigidos daqui para frente.
+- Mais detalhes sobre o futuro do Upload Assistant serão disponibilizados em uma data posterior.
+- Obrigado a todos que contribuíram para este projeto, a todos que usaram o Upload Assistant e a todos que compartilharam este projeto para o benefício de outros.
+- Um agradecimento especial a todos os staffers dos sites que demonstraram grande paciência e compreensão durante o desenvolvimento do Upload Assistant. A cada um de vocês, que corrigiram problemas e silenciosamente os abordaram comigo. Não consigo enfatizar o suficiente como isso me permitiu focar inteiramente na correção dos problemas no código, e o impulso de motivação que isso me deu.
+- Para aqueles que não nomearei, trabalhando em conjunto para trazer novos recursos ao ecossistema, vocês são demais.
+- Especificamente, a todos na Aither. Seu apoio inabalável foi verdadeiramente apreciado.
+- Por último, mas certamente não menos importante, um enorme obrigado a @wastaken7, que contribuiu grandemente para o sucesso do Upload Assistant. Wastaken7 não só trouxe suporte a um conjunto de novos sites, mas também manteve todos esses sites persistentemente. A enorme quantidade de trabalho de refatoração na base de código, para aumentar a facilidade de desenvolvimento, não pode ser subestimada.
+- O Upload Assistant não está morto. Anseio por compartilhar um novo capítulo no futuro.
+
+
 [![Criar e publicar imagem Docker](https://github.com/Audionut/Upload-Assistant/actions/workflows/docker-image.yml/badge.svg?branch=master)](https://github.com/Audionut/Upload-Assistant/actions/workflows/docker-image.yml)
 [![Análise de Código Python](https://github.com/Audionut/Upload-Assistant/actions/workflows/python-code-analysis.yml/badge.svg?branch=master)](https://github.com/Audionut/Upload-Assistant/actions/workflows/python-code-analysis.yml)
-=======
-### NOTE:
-- This project is in development freeze. Only critical bugs will be addressed moving forward.
-- More details on the future of Upload Assistant will be available at a later date.
-- Thanks to all who have contributed to this project, to everyone who has used Upload Assistant and everyone who has shared this project for the benefit of others.
-- A special thankyou to all of the site staffers who have shown great patience and understanding, during the development of Upload Assistant. Each and everyone one of you, who fixed issues, and quietly addressed those same issues with me. I can't emphasize enough how that has allowed me to focus entirely on fixing the issues code side, and the boost to motivation that it gave.
-- To those of you who I will not name, working in tandem to bring new features to the ecosystem, you rock.
-- Specifically, to everyone at Aither. You're unwavering support has been truly appreciated.
-- Last but certainly not least, a huge thanks to @wastaken7, who contributed greatly to the success of Upload Assistant. Not only did wasteken7 being a whole suite of new site support, but he persistently maintained all of those sites. The sheer amount of refactoring work on the codebase, to increase the ease of development cannot be overstated.
-- Upload Assistant is not dead. I look forward to sharing a new chapter in the future.
-
-
-[![Create and publish a Docker image](https://github.com/Audionut/Upload-Assistant/actions/workflows/docker-image.yml/badge.svg?branch=master)](https://github.com/Audionut/Upload-Assistant/actions/workflows/docker-image.yml)
-[![Python Code Analysis](https://github.com/Audionut/Upload-Assistant/actions/workflows/python-code-analysis.yml/badge.svg?branch=master)](https://github.com/Audionut/Upload-Assistant/actions/workflows/python-code-analysis.yml)
->>>>>>> c9dbd01103cbf9b6b8397235eba92694acb74250
 [![Python](https://img.shields.io/badge/python-3.9%20%7C%203.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)](https://www.python.org/downloads/)
 [![Segurança: Bandit](https://img.shields.io/badge/security-bandit-yellow.svg)](https://github.com/PyCQA/bandit)
 [![Segurança: Safety](https://img.shields.io/badge/security-safety-green.svg)](https://github.com/pyupio/safety)
