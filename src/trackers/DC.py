@@ -127,6 +127,7 @@ class DC:
         description = description.replace('[ol]', '').replace('[/ol]', '')
         description = description.replace('[*] ', '• ').replace('[*]', '• ')
         description = bbcode.convert_comparison_to_centered(description, 1000)
+        description = bbcode.remove_list(description)
         description = description.strip()
         description = bbcode.remove_extra_lines(description)
 
