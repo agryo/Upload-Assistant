@@ -391,7 +391,7 @@ class ASC:
         )
 
         # Título personalizado
-        description_parts.append(f"{await self.format_image(layout_image.get('BARRINHA_APRESENTA'))}\n\n[color=#FF8C00][b][size=6]{await self.get_title(meta)}[/size][/b][/color]\n")
+        description_parts.append(f"{await self.format_image(layout_image.get('BARRINHA_APRESENTA'))}\n\n[color=#00EB00][b][size=6]{await self.get_title(meta)}[/size][/b][/color]\n")
 
         # Poster
         season_tmdb = self.season_tmdb_data
