@@ -1290,11 +1290,13 @@ class DescriptionBuilder:
         if custom_signature:
             desc_parts.append(await self.get_custom_signature())
 
-        # UA Signature
+        # UA Signature Personalizada
         if ua_signature:
             if not signature:
                 script_signature = meta.ua_signature
-                signature = f"[right][url=https://github.com/wastaken7/Upload-Assistant][size=4]{script_signature}[/size][/url][/right]"
+                base_signature = f"\n\n[center][url=https://github.com/wastaken7/Upload-Assistant]Upload realizado via {meta.ua_name} {meta.current_version} (fork)[/url][/center]"
+                custom_image = "\n\n[center][img]https://i.postimg.cc/0jnWXGbm/012-Screens.png[/img][/center]"
+                signature = base_signature + custom_image
             desc_parts.append(signature)
 
         description_str: str = "\n".join(part for part in desc_parts if part.strip())

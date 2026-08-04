@@ -69,7 +69,7 @@ class HDSpace:
                 tv_info=True,
                 ua_signature=True,
                 user_description=True,
-                signature=f"[center][url=https://github.com/wastaken7/Upload-Assistant][size=2]{meta.ua_signature}[/size][/url][/center]",
+                signature="",
             )
         except Exception as e:
             logger.info(f"{self.tracker}: Error generating description: {e}")

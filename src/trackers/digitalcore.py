@@ -86,7 +86,7 @@ class DigitalCore:
             tv_info=True,
             ua_signature=True,
             user_description=True,
-            signature=f"[center][url=https://github.com/wastaken7/Upload-Assistant]{meta.ua_signature}[/url][/center]",
+            signature="",
         )
 
     def get_category_id(self, meta: Meta) -> int | None:

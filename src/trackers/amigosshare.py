@@ -411,7 +411,7 @@ class AmigosShare:
         if custom_description_header:
             description_parts.append(custom_description_header + "\n")
 
-        description_parts.append(f"\n[center][url=https://github.com/wastaken7/Upload-Assistant]Compartilhado com {meta.ua_name} {meta.current_version} (fork)[/url][/center]")
+        description_parts.append(f"[center][url=https://github.com/wastaken7/Upload-Assistant]Upload realizado via {meta.ua_name} {meta.current_version} (fork)[/url][/center]\n\n\n[center][img]https://i.postimg.cc/9XbL0r5s/013-Aproveite.png[/img]\n\n\n\n[img]https://i.postimg.cc/FzTpBnVh/012-Screens.png[/img][/center]")
 
         final_desc_path = f"{meta.base_dir}{'/' + 'tmp' + '/'}{meta.uuid}/[{self.tracker}]DESCRIPTION.txt"
         async with aiofiles.open(final_desc_path, "w", encoding="utf-8") as descfile:
@@ -444,7 +444,7 @@ class AmigosShare:
         # Title
         description_parts.extend([await self.format_image(layout_image.get(f"BARRINHA_CUSTOM_T_{i}")) for i in range(1, 4)])
         description_parts.append(f"\n{await self.format_image(layout_image.get('BARRINHA_APRESENTA'))}\n")
-        description_parts.append(f"\n[size=3]{await self.get_name(meta)}[/size]\n")
+        description_parts.append(f"\n[color=#00EB00][b][size=6]{await self.get_name(meta)}[/size][/b][/color]\n")
 
         # Poster
         localized_tmdb = dict(meta.tmdb_localized_data.get("pt-BR", {}))
@@ -582,7 +582,7 @@ class AmigosShare:
         if custom_description_header:
             description_parts.append(custom_description_header + "\n")
 
-        description_parts.append(f"[center][url=https://github.com/wastaken7/Upload-Assistant]Compartilhado com {meta.ua_name} {meta.current_version} (fork)[/url][/center]")
+        description_parts.append(f"\n[center][url=https://github.com/wastaken7/Upload-Assistant]Upload realizado via {meta.ua_name} {meta.current_version} (fork)[/url][/center]\n\n\n[center][img]https://i.postimg.cc/9XbL0r5s/013-Aproveite.png[/img]\n\n\n\n[img]https://i.postimg.cc/FzTpBnVh/012-Screens.png[/img][/center]")
 
         final_desc_path = f"{meta.base_dir}{'/' + 'tmp' + '/'}{meta.uuid}/[{self.tracker}]DESCRIPTION.txt"
         async with aiofiles.open(final_desc_path, "w", encoding="utf-8") as descfile:
@@ -748,7 +748,7 @@ class AmigosShare:
             desc_parts.append(game_section)
 
         desc_parts.append(await builder.get_user_description(meta))
-        desc_parts.append(f"[center][url=https://github.com/wastaken7/Upload-Assistant]Compartilhado com {meta.ua_name} {meta.current_version} (fork)[/url][/center]")
+        desc_parts.append(f"[center][url=https://github.com/wastaken7/Upload-Assistant]Upload realizado via {meta.ua_name} {meta.current_version} (fork)[/url][/center]\n\n\n[center][img]https://i.postimg.cc/9XbL0r5s/013-Aproveite.png[/img]\n\n\n\n[img]https://i.postimg.cc/FzTpBnVh/012-Screens.png[/img][/center]")
 
         final_description = "\n\n".join(part for part in desc_parts if part.strip())
 
