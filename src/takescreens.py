@@ -48,6 +48,29 @@ def compile_ffmpeg_command(command: Any) -> list[str]:
     return [str(argument) for argument in command.compile()]
 
 
+def get_ffmpeg_output_path(command: Any, cmd_list: list[str]) -> str:
+    """Return ffmpeg-python's output filename without relying on argument order."""
+    nodes = [getattr(command, "node", None)]
+    visited: set[int] = set()
+
+    while nodes:
+        node = nodes.pop()
+        if node is None or id(node) in visited:
+            continue
+        visited.add(id(node))
+
+        kwargs = getattr(node, "kwargs", {})
+        filename = kwargs.get("filename") if isinstance(kwargs, dict) else None
+        if filename is not None:
+            return str(filename)
+
+        incoming_edges = getattr(node, "incoming_edges", ())
+        nodes.extend(edge.upstream_node for edge in incoming_edges if getattr(edge, "upstream_node", None) is not None)
+
+    # Keep compatibility with lightweight command doubles used by callers.
+    return cmd_list[-1] if cmd_list else ""
+
+
 algorithm = "mobius"
 desat = 10.0
 
@@ -89,7 +112,7 @@ async def run_ffmpeg(command: Any) -> tuple[int | None, bytes, bytes]:
     # FFREPORT defaults to a timestamped file in the current working
     # directory.  Keep each report beside its output, with a unique name so
     # concurrent or repeated runs do not overwrite an earlier report.
-    output_path = cmd_list[-1] if cmd_list else ""
+    output_path = get_ffmpeg_output_path(command, cmd_list)
     if output_path and output_path not in {"-", "pipe:"} and not output_path.startswith("pipe:"):
         report_path = Path(output_path).resolve().parent / f"ffmpeg-{uuid.uuid4().hex}.log"
         report_path.parent.mkdir(parents=True, exist_ok=True)
@@ -151,6 +174,47 @@ def round_to_even(value: float) -> int:
     if rounded % 2 != 0:
         rounded += 1
     return rounded
+
+
+def _as_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+    return default
+
+
+def should_scale_screenshots_for_par(config: Mapping[str, Any] | None = None) -> bool:
+    """Return whether screenshots should be converted to square-pixel dimensions."""
+    settings = default_config if config is None else config
+    return _as_bool(settings.get("scale_screenshots_for_par"), default=False)
+
+
+def screenshot_par_scale_factors(
+    width: float,
+    height: float,
+    pixel_aspect_ratio: float,
+    display_aspect_ratio: float,
+    apply_par_scaling: bool | None = None,
+) -> tuple[float, float]:
+    """Return the width and height scale factors for a screenshot.
+
+    Screenshots retain their MediaInfo-reported coded dimensions by default.
+    PAR correction remains available for non-square-pixel sources when a user
+    explicitly enables ``scale_screenshots_for_par``.
+    """
+    if apply_par_scaling is None:
+        apply_par_scaling = should_scale_screenshots_for_par()
+    if not apply_par_scaling or pixel_aspect_ratio == 1:
+        return 1.0, 1.0
+    if pixel_aspect_ratio < 1:
+        new_height = display_aspect_ratio * height
+        return 1.0, width / new_height
+    return pixel_aspect_ratio, 1.0
 
 
 async def disc_screenshots(
@@ -533,7 +597,6 @@ async def dvd_screenshots(
         return
 
     ifo_mi = MediaInfo.parse(f"{meta.discs[disc_num]['path']}/VTS_{meta.discs[disc_num]['main_set'][0][:2]}_0.IFO", mediainfo_options={"inform_version": "1"})
-    sar = 1.0
     w_sar = 1.0
     h_sar = 1.0
     par: float = 1.0
@@ -556,15 +619,7 @@ async def dvd_screenshots(
             width = float(track.width)
             height = float(track.height)
             frame_rate = float(track.frame_rate)
-    if par < 1:
-        new_height: float = dar * height
-        sar = width / new_height
-        w_sar = 1.0
-        h_sar = sar
-    else:
-        sar = par
-        w_sar = sar
-        h_sar = 1.0
+    w_sar, h_sar = screenshot_par_scale_factors(width, height, par, dar)
 
     async def _is_vob_good(n: int, loops: int, _num_screens: int) -> tuple[float, float]:
         max_loops = 6
@@ -1600,16 +1655,7 @@ async def screenshots(
         dar = safe_float(video_track.get("DisplayAspectRatio"), 16.0 / 9.0, "DisplayAspectRatio")
         frame_rate = safe_float(video_track.get("FrameRate"), 24.0, "FrameRate")
 
-        if par == 1:
-            sar = w_sar = h_sar = 1.0
-        elif par < 1:
-            new_height = dar * height
-            sar = width / new_height
-            w_sar = 1.0
-            h_sar = sar
-        else:
-            sar = w_sar = par
-            h_sar = 1
+        w_sar, h_sar = screenshot_par_scale_factors(width, height, par, dar)
     except Exception as e:
         logger.error(f"[red]Error processing MediaInfo.json: {e}")
         if meta.debug:
