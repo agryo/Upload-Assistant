@@ -21,7 +21,6 @@ from src.meta import Meta
 from src.qbitwait import Wait
 from src.rehostimages import check_tracker_image_hosts
 from src.trackers.passthepopcorn import PassThePopcorn
-from src.trackers.torrenthr import TorrentHR
 from src.trackersetup import TrackerSetup
 
 type StatusDict = dict[str, Any]
@@ -139,7 +138,7 @@ async def process_trackers(
         """
 
         tracker_class: Any = None
-        if tracker not in {"MANUAL", "TORRENTHR", "PASSTHEPOPCORN"}:
+        if tracker not in {"MANUAL", "PASSTHEPOPCORN"}:
             tracker_class = tracker_class_map[tracker](config=config)
         if meta.name.endswith("DUPE?"):
             meta.name = meta.name.replace(" DUPE?", "")
@@ -312,7 +311,28 @@ async def process_trackers(
                         try:
                             await check_tracker_image_hosts(meta, tracker_class)
                             if manual_tracker in api_trackers:
-                                await DescriptionBuilder(manual_tracker, config).unit3d_edit_desc(meta, manual_tracker)
+                                await DescriptionBuilder(manual_tracker, config).general_description_generator(
+                                    meta,
+                                    audio_spectrogram=True,
+                                    bluray=True,
+                                    book=True,
+                                    custom_header=True,
+                                    custom_signature=True,
+                                    description=True,
+                                    game=True,
+                                    languages=False,
+                                    logo=True,
+                                    mediainfo=False,
+                                    menu_screenshots=True,
+                                    nfo=False,
+                                    screenshots=True,
+                                    tonemapped_header=True,
+                                    tv_info=True,
+                                    ua_signature=True,
+                                    user_description=True,
+                                    music=True,
+                                    signature=manual_tracker,
+                                )
                             else:
                                 await tracker_class.edit_desc(meta)
                         except Exception as e:
@@ -323,33 +343,6 @@ async def process_trackers(
                 else:
                     logger.info(f"[green]{meta.name}")
                     logger.info(f"[green]Files can be found at: [yellow]{url}[/yellow]")
-
-        elif tracker == "TORRENTHR":
-            tracker_status = meta.tracker_status or {}
-            upload_status = cast(Mapping[str, Any], tracker_status.get(tracker, {})).get("upload", False)
-            if upload_status:
-                thr = TorrentHR(config=config)
-                thr_any = cast(Any, thr)
-                is_uploaded = False
-                try:
-                    upload_start_time = time.time()
-                    is_uploaded = await thr_any.upload(meta)
-                    upload_duration = time.time() - upload_start_time
-                    meta[f"{tracker}_upload_duration"] = upload_duration
-                except Exception as e:
-                    logger.info(f"[red]Upload failed: {e}")
-                    logger.info(traceback.format_exc())
-                    return
-                if is_uploaded:
-                    status = meta.tracker_status.setdefault("TORRENTHR", {})
-                    status["upload_success"] = True
-                    await client.add_to_client(meta, "TORRENTHR")
-                    print_tracker_result(tracker, thr, status, True)
-                else:
-                    status = meta.tracker_status.setdefault("TORRENTHR", {})
-                    status["upload_success"] = False
-                    print_tracker_result(tracker, thr, status, False)
-                    logger.info(f"[red]{tracker} upload failed or returned data error.[/red]")
 
         elif tracker == "PASSTHEPOPCORN":
             tracker_status = meta.tracker_status

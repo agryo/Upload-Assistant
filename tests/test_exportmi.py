@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from bin.download_integrity import SHA256_BY_ASSET
-from src.mediainfo import MediaInfo
+from src.mediainfo import MediaInfo, strip_report_by_line
 
 
 def test_cli_backed_mediainfo_preserves_track_access() -> None:
@@ -29,6 +29,26 @@ def test_cli_backed_mediainfo_returns_requested_text() -> None:
     run.assert_called_once_with("video.mkv", output="STRING", full=False, inform=None)
 
 
+@pytest.mark.parametrize(
+    "report_by_line",
+    [
+        "ReportBy: MediaInfoLib - v26.05\n",
+        "ReportBy                                 : MediaInfoLib - v26.05\r\n",
+        "  reportby : MediaInfoLib - v27.01\n",
+    ],
+)
+def test_strip_report_by_line_handles_mediainfo_formatting(report_by_line: str) -> None:
+    report = f"General\nComplete name : example.mkv\n\n{report_by_line}Video\nFormat : AVC\n"
+
+    assert strip_report_by_line(report) == "General\nComplete name : example.mkv\n\nVideo\nFormat : AVC\n"
+
+
+def test_strip_report_by_line_handles_bare_carriage_return_boundaries() -> None:
+    report = "General\rComplete name : example.mkv\rReportBy : MediaInfoLib - v26.05\rVideo\rFormat : AVC\r"
+
+    assert strip_report_by_line(report) == "General\rComplete name : example.mkv\rVideo\rFormat : AVC\r"
+
+
 def test_text_reports_always_request_mediainfo_version() -> None:
     completed = Mock(returncode=0, stdout="General", stderr="")
     with patch("src.mediainfo._binary", return_value="mediainfo"), patch("src.mediainfo.subprocess.run", return_value=completed) as run:
@@ -37,6 +57,17 @@ def test_text_reports_always_request_mediainfo_version() -> None:
         run_mediainfo("video.mkv", output="STRING", full=False)
 
     assert run.call_args.args[0] == ["mediainfo", "--inform_version=1", "video.mkv"]
+
+
+def test_mediainfo_uses_tolerant_utf8_output_decoding() -> None:
+    completed = Mock(returncode=0, stdout="General", stderr="")
+    with patch("src.mediainfo._binary", return_value="mediainfo"), patch("src.mediainfo.subprocess.run", return_value=completed) as run:
+        from src.mediainfo import run_mediainfo
+
+        run_mediainfo("audio.m4b")
+
+    assert run.call_args.kwargs["encoding"] == "utf-8"
+    assert run.call_args.kwargs["errors"] == "replace"
 
 
 def test_mediainfo_timeout_becomes_runtime_error() -> None:
