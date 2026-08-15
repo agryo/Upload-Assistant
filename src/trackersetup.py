@@ -63,6 +63,7 @@ from src.trackers.tvchaosuk import TVChaosUK
 from src.trackers.UNIT3D.aither import Aither
 from src.trackers.UNIT3D.asiancinema import AsianCinema
 from src.trackers.UNIT3D.aura4k import Aura4K
+from src.trackers.UNIT3D.bitporn import BitPorn
 from src.trackers.UNIT3D.blutopia import Blutopia
 from src.trackers.UNIT3D.capybarabr import CapybaraBR
 from src.trackers.UNIT3D.cinematik import Cinematik
@@ -103,6 +104,7 @@ from src.trackers.UNIT3D.yuscene import YUSCENE
 from src.trackers.UNIT3D.znth import Zenith
 from src.trackers.USENET.curupira import Curupira
 from src.trackers.USENET.drunkenslug import DrunkenSlug
+from src.trackers.USENET.nzbgeek import NZBGeek
 from src.trackers.USENET.suio import Suio
 
 JsonDict = dict[str, Any]
@@ -1354,6 +1356,7 @@ tracker_class_map: dict[str, Any] = {
     "AVISTAZ": AvistaZ,
     "BEYONDHD": BEYONDHD,
     "BITHDTV": BitHDTV,
+    "BITPORN": BitPorn,
     "BJSHARE": BJShare,
     "BLUTOPIA": Blutopia,
     "BRASILTRACKER": BrasilTracker,
@@ -1364,6 +1367,7 @@ tracker_class_map: dict[str, Any] = {
     "DIGITALCORE": DigitalCore,
     "DARKPEERS": DarkPeers,
     "DRUNKENSLUG": DrunkenSlug,
+    "NZBGEEK": NZBGeek,
     "DESITORRENTS": DesiTorrents,
     "EMUWAREZ": Emuwarez,
     "FUNFILE": FunFile,
