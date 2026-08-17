@@ -70,25 +70,10 @@ class DigitalCore:
         return await builder.general_description_generator(
             meta,
             approved_image_hosts=self.approved_image_hosts,
-            audio_spectrogram=True,
             bluray=False,
-            book=True,
-            custom_header=True,
             custom_signature=False,
-            description=True,
-            game=True,
-            languages=False,
             logo=False,
-            mediainfo=True,
-            menu_screenshots=True,
-            music=True,
-            nfo=True,
-            screenshots=True,
-            tonemapped_header=True,
-            tv_info=True,
-            ua_signature=True,
-            user_description=True,
-            signature="",
+            signature=f"[center][url=https://github.com/wastaken7/Upload-Assistant]{meta.ua_signature}[/url][/center]",
         )
 
     def get_category_id(self, meta: Meta) -> int | None:

@@ -191,6 +191,8 @@ config: dict[str, Any] = {
         "tracker_description_mode": "text",
         # Maximum number of tracker-ID metadata candidates queried at once.
         "tracker_search_concurrency": 4,
+        # Only query tracker metadata when a torrent ID is known from a client comment or --tracker-id.
+        "tracker_comment_only": True,
         # set true to use argument overrides from data/templates/user-args.json
         "user_overrides": False,
         # Automatically set --personalrelease to True if the detected release group matches any of these tags (case-insensitive)
@@ -2923,7 +2925,7 @@ config: dict[str, Any] = {
         # Name your torrent clients here, for example, this example is named "qbittorrent" and is set as default_torrent_client above
         # All options relate to the webui, make sure you have the webui secured if it has WAN access
         # **DO NOT** modify torrent_client name, eg: "qbit"
-        # See https://github.com/Audionut/Upload-Assistant/wiki
+        # See https://github.com/wastaken7/Upload-Assistant/blob/development/docs/configuration.md#torrent-clients
         "qbittorrent": {
             "torrent_client": "qbit",
             # QUI reverse proxy: https://getqui.com/docs/features/reverse-proxy

@@ -2,7 +2,7 @@
 
 This document explains the configuration options found in `data/example_config.py`.
 
-Upload Assistant loads configuration from its user-owned state directory: `%LOCALAPPDATA%\\Upload-Assistant\\data\\config.py` on Windows, `$XDG_DATA_HOME/upload-assistant/data/config.py` (normally `~/.local/share/upload-assistant/data/config.py`) on Linux, or `$UA_DATA_DIR/data/config.py` when overridden.
+Upload Assistant loads configuration from its user-owned state directory: `%LOCALAPPDATA%\\Upload-Assistant\\data\\config.py` on Windows, `$XDG_DATA_HOME/Upload-Assistant/data/config.py` (normally `~/.local/share/Upload-Assistant/data/config.py`) on Linux, or `$UA_DATA_DIR/data/config.py` when overridden.
 
 On the first run after upgrading, a legacy `data/config.py` in the checkout is **moved** to this location, so only one active configuration remains.
 
@@ -228,11 +228,13 @@ Implementation notes:
 - `use_largest_playlist` (bool): Always use the largest Blu-ray playlist without prompting.
 - `tracker_description_mode` (str, required): Import policy for other tracker releases: `ids`, `images`, `text`, or `text_and_images`.
 - `tracker_search_concurrency` (int): Maximum number of tracker IDs queried concurrently; default `4`.
+- `tracker_comment_only` (bool, default `True`): Only query tracker metadata when a torrent ID was obtained from a client comment or supplied with `--tracker-id`; disables filename-based tracker searches. Set `False` to re-enable filename-based tracker searches.
 
 Implementation notes:
 
 - `tracker_pass_checks` is used to determine how many trackers must pass early validation before continuing (see `upload.py`).
 - `tracker_description_mode` is the only configuration that controls imported tracker description text and screenshots. `--onlyID` temporarily forces `ids` for that execution.
+- `tracker_comment_only` does not disable explicit IDs supplied through `--tracker-id`.
 
 ### Sonarr / Radarr integration
 
