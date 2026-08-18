@@ -57,7 +57,8 @@ class HDSpace:
                 custom_signature=False,
                 game=False,
                 nfo=False,
-                signature=f"[center][url=https://github.com/wastaken7/Upload-Assistant][size=2]{meta.ua_signature}[/size][/url][/center]",
+                ua_signature=True,
+                signature=f"",
             )
         except Exception as e:
             logger.info(f"{self.tracker}: Error generating description: {e}")
