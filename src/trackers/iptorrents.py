@@ -126,8 +126,10 @@ class IPTorrents:
         return await builder.general_description_generator(
             meta,
             logo=False,
+            audio_spectrogram=False,
             nfo=False,
-            signature=f"[center][url=https://github.com/wastaken7/Upload-Assistant]{meta.ua_signature}[/center][/url][/right]",
+            signature=f"",
+            ua_signature=True,
         )
 
     async def search_existing(self, meta: Meta) -> list[dict[str, str]]:
