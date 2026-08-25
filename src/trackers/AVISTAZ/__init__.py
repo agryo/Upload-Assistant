@@ -420,7 +420,7 @@ class AZTrackerBase:
                         return {}
                     logger.info(f"{self.tracker}: No audio language/s found.")
                     logger.info(f"{self.tracker}: You must enter (comma-separated) languages for all audio tracks, eg: English, Spanish: ")
-                    user_input_raw = await prompt_in_thread(cli_ui.ask_string, "[bold yellow]Enter languages: [/bold yellow]")
+                    user_input_raw = await prompt_in_thread(cli_ui.ask_string, "Enter languages: ")
                     user_input = (user_input_raw or "").strip()
                     langs = [lang.strip() for lang in user_input.split(",")]
                     for lang in langs:
@@ -524,7 +524,7 @@ class AZTrackerBase:
         # Always fill remaining slots from remote image_list after processing local files
         image_links = [str(img.get("raw_url")) for img in meta.image_list if img.get("raw_url")]
 
-        if len(results) < limit:
+        if not local_files and len(results) < limit:
             for url in image_links:
                 if len(results) >= limit:
                     break

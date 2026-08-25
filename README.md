@@ -32,6 +32,7 @@
 - [Docker Usage](#docker-usage)
 - [Seedbox / Linux Install](docs/seedbox.md)
 - [Attributions](#attributions)
+- [Contributors](#contributors)
 
 ## Fork Features & Differences from Upstream (Audionut/Upload-Assistant)
 
@@ -123,6 +124,7 @@ This branch introduces new media categories and automation features not present 
 | <img src="web_ui/static/img/trackers/darkpeers.png" width="16" height="16" />              | DarkPeers              | DARKPEERS              | MOVIE, TV, BOOK, GAME, MUSIC |
 | <img src="web_ui/static/img/trackers/desitorrents.png" width="16" height="16" />           | DesiTorrents           | DESITORRENTS           | MOVIE, TV                    |
 | <img src="web_ui/static/img/trackers/digitalcore.png" width="16" height="16" />            | DigitalCore            | DIGITALCORE            | MOVIE, TV, BOOK, GAME, MUSIC |
+| <img src="web_ui/static/img/trackers/dreadvault.png" alt="" width="16" height="16" />      | DreadVault             | DREADVAULT             | MOVIE, TV                    |
 | <img src="web_ui/static/img/trackers/emuwarez.png" width="16" height="16" />               | Emuwarez               | EMUWAREZ               | MOVIE, TV                    |
 | <img src="web_ui/static/img/trackers/filelist.png" width="16" height="16" />               | FileList               | FILELIST               | MOVIE, TV                    |
 | <img src="web_ui/static/img/trackers/flood.png" width="16" height="16" />                  | Flood                  | FLOOD                  | MOVIE, TV                    |
@@ -226,6 +228,18 @@ For a manual Linux/macOS/Windows installation, Upload Assistant needs a few tool
 
 ---
 
+### Install with `uv` (Windows, Linux, or macOS)
+
+If you have [uv](https://github.com/astral-sh/uv) installed, you can install Upload Assistant directly from the repository as a globally available standalone CLI tool. This automatically manages the virtual environment and exposes the `ua` and `ua-config` commands directly to your system path. This method resolves dependencies from `pyproject.toml`; skip Steps 2 and 3 below.
+
+```bash
+uv tool install git+https://github.com/wastaken7/Upload-Assistant.git
+```
+
+If `uv` reports that its tool directory is not on your `PATH`, run `uv tool update-shell`, then open a new terminal.
+
+---
+
 ### Step 2: Download Upload Assistant (Linux/macOS)
 
 Choose **one** of the two options below to get the files onto your computer:
@@ -290,10 +304,16 @@ If you plan to use the Web UI, **your configuration file will be generated autom
 In your terminal, run the command for your operating system and follow the on-screen prompts:
 
 - **Windows:** Install with the [`.exe` installer](docs/windows-install.md), then run `ua-config` in a new terminal.
-- **Linux / macOS:**
+- **Linux / macOS (Standard):**
 
   ```bash
   python3 config-generator.py
+  ```
+
+- **Linux / macOS (uv installation):**
+
+  ```bash
+  ua-config
   ```
 
 #### Method C: Manual Configuration
@@ -324,23 +344,24 @@ In your terminal, run the command for your operating system and follow the on-sc
 
 - Or, if you downloaded the ZIP file, download a fresh ZIP from GitHub and overwrite your existing files.
 - For the Windows installation, run `ua-update`.
+- For the `uv` standalone installation, run: `uv tool upgrade upload-assistant`
 - Run the command to update dependencies:
   - **Linux / macOS:** `python3 -m pip install --user -U -r requirements.txt`
 - Run the configuration generator to fetch any new settings:
-  - **Windows:** run `ua-config` from any folder.
-  - **Linux / macOS:** `python3 config-generator.py`
+  - **Windows / uv installations:** run `ua-config` from any folder.
+  - **Linux / macOS (Standard):** `python3 config-generator.py`
 
 ## **CLI Usage:**
 
 To run the assistant, use the command for your system:
 
-- **Windows:**
+- **Windows / uv installations:**
 
   ```cmd
-  ua "C:\path\to\content" --args
+  ua "/path/to/content" --args
   ```
 
-- **Linux / macOS:**
+- **Linux / macOS (Standard):**
 
   ```bash
   python3 upload.py "/path/to/content" --args
@@ -382,3 +403,6 @@ Features automated binary managers for:
   <a href="https://thetvdb.com/"><img src="https://i.postimg.cc/Hs1KKqsS/logo1.png" alt="TheTVDB" height="40px;"></a>&nbsp;&nbsp;
   <a href="https://www.tvmaze.com/"><img src="https://i.postimg.cc/2jdRzkJp/tvm-header-logo.png" alt="TVmaze" height="40px"></a>
 </p>
+
+## **Contributors:**
+[![Contributors](https://contrib.rocks/image?repo=wastaken7/Upload-Assistant)](https://github.com/wastaken7/Upload-Assistant/graphs/contributors)
