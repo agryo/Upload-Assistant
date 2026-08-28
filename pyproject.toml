@@ -1,13 +1,31 @@
 [project]
 name = "upload-assistant"
-version = "3.8"
+version = "3.9"
 requires-python = ">=3.14"
 description = "A simple tool to take the work out of uploading."
 readme = "README.md"
+license-files = ["LICENSE"]
+authors = [
+    { name = "wastaken7" },
+]
+maintainers = [
+    { name = "wastaken7" },
+]
+keywords = ["media", "torrent", "upload-assistant"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Multimedia",
+    "Topic :: Utilities",
+]
 dependencies = [
     "aiofiles==25.1.0",
     "aiohttp==3.14.3",
     "anitopy==2.1.1",
+    "argcomplete>=3.7.2",
     "argon2-cffi==25.1.0",
     "babel==2.17.0",
     "bbcode==1.1.0",
@@ -60,12 +78,17 @@ dependencies = [
     "torf==4.3.0",
     "tqdm==4.67.1",
     "transmission-rpc==7.0.11",
-    "tvdb-v4-official==1.1.0",
     "typing-extensions==4.15.0",
     "unidecode==1.4.0",
     "urllib3==2.7.0",
     "waitress==3.0.2",
 ]
+
+[project.urls]
+Homepage = "https://github.com/wastaken7/Upload-Assistant"
+Documentation = "https://github.com/wastaken7/Upload-Assistant/tree/master/docs"
+Issues = "https://github.com/wastaken7/Upload-Assistant/issues"
+Source = "https://github.com/wastaken7/Upload-Assistant"
 
 [build-system]
 requires = ["setuptools>=83"]
@@ -166,4 +189,10 @@ search-path = ["."]
 project-excludes = [
     "**/__pyrefly_virtual__/**",
     "**/tmp/**"
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
 ]

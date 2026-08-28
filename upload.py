@@ -1,22 +1,45 @@
 #!/usr/bin/env python3
+# PYTHON_ARGCOMPLETE_OK
 # Upload Assistant © 2025 Audionut & wastaken7 — Licensed under UAPL v1.0
+
+import contextlib
+import os
+import sys
+from pathlib import Path
+
+_entrypoint_name = Path(sys.argv[0]).stem.lower()
+_is_uploader_entrypoint = __name__ == "__main__" or _entrypoint_name == "ua"
+
+if _is_uploader_entrypoint and "_ARGCOMPLETE" in os.environ:
+    from src.args import Args
+
+    try:
+        from data.config import config as _completion_config
+    except ModuleNotFoundError:
+        _completion_config = {"DEFAULT": {"screens": 0}, "TRACKERS": {}}
+    Args(_completion_config).parse(sys.argv[1:], None)
+    sys.exit(0)
+
+if _is_uploader_entrypoint and ("-h" in sys.argv or "--help" in sys.argv):
+    from src.args import Args
+
+    with contextlib.suppress(SystemExit):
+        Args({"DEFAULT": {"screens": 0}}).parse(sys.argv[1:], None)
+    sys.exit(0)
+
 import ast
 import asyncio
-import contextlib
 import gc
 import json
-import os
 import platform
 import re
 import shlex
 import shutil
 import signal
-import sys
 import threading
 import time
 import traceback
 from collections.abc import Iterable, Mapping
-from pathlib import Path
 from typing import Any, Protocol, cast
 from urllib.parse import urljoin, urlparse
 
@@ -25,11 +48,6 @@ from src.check_requirements import check_dependencies
 check_dependencies()
 
 import logging
-
-import aiofiles
-import cli_ui  # pyright: ignore[reportMissingImports]
-import requests
-from torf import Torrent as _Torrent  # pyright: ignore[reportMissingImports,reportUnknownVariableType]
 
 from bin.get_ffmpeg import FfmpegBinaryManager
 from bin.get_mkbrr import MkbrrBinaryManager
@@ -43,7 +61,7 @@ from src.book_prep import detect_newspaper, is_valid_book_language, resolve_book
 from src.cleanup import cleanup_manager
 from src.clients import Clients
 from src.cogs.redaction import PathAwareEncoder, Redaction
-from src.config_helpers import format_terminal_link
+from src.config_helpers import format_terminal_link, parse_bool
 from src.console import current_release_log_path, logger  # pyright: ignore[reportUnknownVariableType]
 from src.console import rich_handler as _rich_handler
 from src.disc_menus import process_disc_menus
@@ -66,16 +84,17 @@ from src.trackers.common import Common
 from src.trackers.passthepopcorn import PassThePopcorn
 from src.trackersetup import TrackerSetup, api_trackers, http_trackers, other_api_trackers, tracker_class_map
 from src.trackerstatus import TrackerStatusManager
+from src.tvdb import close_tvdb
 from src.uphelper import UploadHelper
+from src.uploadorder import run_upload_order
 from src.uploadscreens import UploadScreensManager
 
 # Runtime artifacts are user-owned; CODE_DIR remains the read-only checkout.
 base_dir = str(STATE_DIR)
-CLI_UI: Any = cli_ui
-TORF_Torrent: Any = cast(Any, _Torrent)
+CLI_UI: Any = None
+TORF_Torrent: Any = None
 RICH_HANDLER: Any = cast(Any, _rich_handler)
 TORRENT_CREATOR: Any = cast(Any, TorrentCreator)
-CLI_UI.setup(color="always", title="Upload Assistant")
 
 
 def _parse_version_tuple(value: str) -> tuple[int, ...]:
@@ -157,7 +176,7 @@ def _handle_shutdown_signal(signum: int, _frame: Any) -> None:
     else:
         # Second signal = force exit
         logger.info("[red]Forced exit[/red]")
-        sys.exit(1)
+        os._exit(1)
 
 
 # ── Restore built-in data/ files when a Docker volume mount hides them ──
@@ -2222,7 +2241,20 @@ async def update_notification() -> str:
     return local_version
 
 
+def load_heavy_globals() -> None:
+    global aiofiles, requests, CLI_UI, TORF_Torrent
+    import aiofiles
+    import cli_ui
+    import requests
+    from torf import Torrent
+
+    CLI_UI = cli_ui
+    TORF_Torrent = Torrent
+    CLI_UI.setup(color="always", title="Upload Assistant")
+
+
 async def do_the_thing(base_dir: str) -> None:
+    load_heavy_globals()
     # Reload config from disk so that changes made via the WebUI config
     # editor (or manual file edits between runs) are picked up.  The
     # module-level ``config`` dict is imported once at startup and would
@@ -2392,6 +2424,8 @@ async def do_the_thing(base_dir: str) -> None:
                     sys.exit(1)
             finally:
                 logger.info("[yellow]Web UI server stopped[/yellow]")
+                with contextlib.suppress(Exception):
+                    await cleanup_manager.cleanup()
 
             return  # Exit early when running web UI only
 
@@ -2737,7 +2771,7 @@ async def do_the_thing(base_dir: str) -> None:
                         elif has_usenet_trackers:
                             logger.info("[yellow]Skipping NNTP Usenet post because no Usenet indexers passed the upload checks.[/yellow]")
 
-                    async def upload_torrent_flow(meta: Meta, torrent_trackers: list[str]) -> None:
+                    async def upload_torrent_flow(meta: Meta, torrent_trackers: list[str], bandwidth_control: bool) -> None:
                         if torrent_trackers:
                             meta_torrent = meta.copy()
                             meta_torrent["trackers"] = torrent_trackers
@@ -2752,45 +2786,61 @@ async def do_the_thing(base_dir: str) -> None:
                                 tracker_class_map,
                                 list(http_trackers),
                                 list(other_api_trackers),
+                                bandwidth_control=bandwidth_control,
                             )
+
+                    async def wait_before_usenet_upload(meta: Meta = meta) -> None:
+                        logger.info("\n[yellow]Checking bandwidth before starting Usenet upload...[/yellow]")
+                        try:
+                            waiter = Wait(config)
+                            bw_thresh = meta.qbit_bandwidth_threshold or config["DEFAULT"].get("qbit_bandwidth_threshold", 0)
+                            bw_time = meta.qbit_bandwidth_time or config["DEFAULT"].get("qbit_bandwidth_time", 0)
+                            try:
+                                bw_thresh = int(bw_thresh)
+                                bw_time = int(bw_time)
+                            except (ValueError, TypeError) as e:
+                                logger.info(f"[red]Invalid bandwidth settings: {e}, skipping bandwidth wait before Usenet upload.[/red]")
+                                bw_thresh = 0
+                                bw_time = 0
+                            if bw_thresh > 0 and bw_time > 0:
+                                await waiter.wait_for_bandwidth(bw_thresh, bw_time)
+                            else:
+                                logger.info("[yellow]Bandwidth control threshold or time is 0 or not configured. Skipping bandwidth check.[/yellow]")
+                        except Exception as e:
+                            logger.info(f"[red]Error initializing bandwidth check: {e}, skipping bandwidth wait before Usenet upload.[/red]")
 
                     upload_order = meta.upload_order or config["DEFAULT"].get("upload_order", "concurrent")
                     upload_order = upload_order.strip().lower() if isinstance(upload_order, str) else "concurrent"
+                    qbit_bandwidth_control = parse_bool(meta.qbit_bandwidth_control) or parse_bool(config["DEFAULT"].get("qbit_bandwidth_control", False))
+                    qbit_bandwidth_control_after_usenet = parse_bool(meta.qbit_bandwidth_control_after_usenet) or parse_bool(
+                        config["DEFAULT"].get("qbit_bandwidth_control_after_usenet", False)
+                    )
 
-                    if upload_order == "usenet":
-                        await upload_usenet_flow(meta, eligible_usenet_trackers, need_usenet_post, bool(usenet_trackers))
-                        await upload_torrent_flow(meta, torrent_trackers)
-                    elif upload_order == "tracker":
-                        await upload_torrent_flow(meta, torrent_trackers)
+                    async def run_usenet_flow(
+                        meta: Meta = meta,
+                        eligible_usenet_trackers: list[str] = eligible_usenet_trackers,
+                        need_usenet_post: bool = need_usenet_post,
+                        has_usenet_trackers: bool = bool(usenet_trackers),
+                    ) -> None:
+                        await upload_usenet_flow(meta, eligible_usenet_trackers, need_usenet_post, has_usenet_trackers)
 
-                        if need_usenet_post and torrent_trackers:
-                            logger.info("\n[yellow]Torrent uploads completed. Checking bandwidth before starting Usenet upload...[/yellow]")
-                            from src.qbitwait import Wait
+                    async def run_torrent_flow(
+                        bandwidth_control: bool,
+                        meta: Meta = meta,
+                        torrent_trackers: list[str] = torrent_trackers,
+                    ) -> None:
+                        await upload_torrent_flow(meta, torrent_trackers, bandwidth_control)
 
-                            try:
-                                waiter = Wait(config)
-                                bw_thresh = meta.qbit_bandwidth_threshold or config["DEFAULT"].get("qbit_bandwidth_threshold", 0)
-                                bw_time = meta.qbit_bandwidth_time or config["DEFAULT"].get("qbit_bandwidth_time", 0)
-                                try:
-                                    bw_thresh = int(bw_thresh)
-                                    bw_time = int(bw_time)
-                                except (ValueError, TypeError) as e:
-                                    logger.info(f"[red]Invalid bandwidth settings: {e}, skipping bandwidth wait before Usenet upload.[/red]")
-                                    bw_thresh = 0
-                                    bw_time = 0
-                                if bw_thresh > 0 and bw_time > 0:
-                                    await waiter.wait_for_bandwidth(bw_thresh, bw_time)
-                                else:
-                                    logger.info("[yellow]Bandwidth control threshold or time is 0 or not configured. Skipping bandwidth check.[/yellow]")
-                            except Exception as e:
-                                logger.info(f"[red]Error initializing bandwidth check: {e}, skipping bandwidth wait before Usenet upload.[/red]")
-
-                        await upload_usenet_flow(meta, eligible_usenet_trackers, need_usenet_post, bool(usenet_trackers))
-                    else:
-                        await asyncio.gather(
-                            upload_usenet_flow(meta, eligible_usenet_trackers, need_usenet_post, bool(usenet_trackers)),
-                            upload_torrent_flow(meta, torrent_trackers),
-                        )
+                    await run_upload_order(
+                        upload_order,
+                        run_usenet_flow,
+                        run_torrent_flow,
+                        wait_before_usenet_upload,
+                        bandwidth_control=qbit_bandwidth_control,
+                        bandwidth_control_after_usenet=qbit_bandwidth_control_after_usenet,
+                        has_usenet_upload=need_usenet_post,
+                        has_torrent_trackers=bool(torrent_trackers),
+                    )
                     if config["DEFAULT"].get("cross_seeding", True):
                         await process_cross_seeds(meta)
 
@@ -3116,6 +3166,9 @@ async def main() -> None:
     except Exception as e:
         if not _shutdown_requested:
             logger.error(f"[bold red]Unexpected error: {e}[/bold red]")
+    finally:
+        with contextlib.suppress(Exception):
+            await close_tvdb()
 
 
 def run() -> None:
