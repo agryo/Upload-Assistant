@@ -2117,6 +2117,7 @@ class DescriptionBuilder:
             description = description.replace("[code]", "[pre]").replace("[/code]", "[/pre]")
 
         if tracker == "DIGITALCORE":
+            description = bbcode.remove_img_resize(description)
             description = description.replace("[user]", "").replace("[/user]", "")
             description = description.replace("[align=left]", "").replace("[/align]", "")
             description = description.replace("[right]", "").replace("[/right]", "")
