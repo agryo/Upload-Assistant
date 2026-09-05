@@ -78,26 +78,26 @@ config: dict[str, Any] = {
         "use_sonarr": False,
         "sonarr_url": "http://localhost:8989",
         "sonarr_api_key": "",
-        # Settings for a second Sonarr instance.
-        # Add additional Sonarr instances by adding more sonarr_url_x and sonarr_api_key_x entries.
-        "sonarr_url_1": "http://my-second-instance:8989",
-        "sonarr_api_key_1": "",
         # Set to True to use Radarr when searching for movies.
         "use_radarr": False,
         "radarr_url": "http://localhost:7878",
         "radarr_api_key": "",
-        # Settings for a second Radarr instance.
-        # Add additional Radarr instances by adding more radarr_url_x and radarr_api_key_x entries.
-        "radarr_url_1": "http://my-second-instance:7878",
-        "radarr_api_key_1": "",
+        # Optional second Sonarr instance. Uncomment these entries and repeat
+        # with suffixes _2 and _3 to configure up to four instances in total.
+        # "sonarr_url_1": "http://my-second-instance:8989",
+        # "sonarr_api_key_1": "",
+        # Optional second Radarr instance. Uncomment these entries and repeat
+        # with suffixes _2 and _3 to configure up to four instances in total.
+        # "radarr_url_1": "http://my-second-instance:7878",
+        # "radarr_api_key_1": "",
         # --- EXTERNAL TOOL PATHS ---
         # Optional paths to external media tools. Leave blank to use the bundled
         # tool when available, or the corresponding executable on the system PATH.
-        # The DVD-specific MediaInfo executable must remain on version 23.04 because
-        # newer releases do not preserve its DVD parsing behavior.
         "ffmpeg_path": "",
         "ffprobe_path": "",
         "mediainfo_path": "",
+        # The DVD-specific MediaInfo executable must remain on version 23.04 because
+        # newer releases do not preserve its DVD parsing behavior.
         "dvd_mediainfo_path": "",
         "bdinfo_path": "",
         "mkbrr_path": "",
@@ -366,6 +366,8 @@ config: dict[str, Any] = {
         # Header added above the screenshot section where supported.
         # Can be overridden per tracker by adding the same setting to its configuration.
         "screenshot_header": "[h2]Screenshots[/h2]",
+        # Set to False to keep the screenshot header even when screenshots are the only section.
+        "hide_screenshot_header_if_only_section": True,
         # Header added above screenshots after HDR tone mapping.
         # Can be overridden per tracker by adding the same setting to its configuration.
         "tonemapped_header": "[center]Screenshots have been adapted for SDR viewing, for reference only.[/center]",
@@ -3416,10 +3418,10 @@ config: dict[str, Any] = {
         # See https://github.com/wastaken7/Upload-Assistant/blob/development/docs/configuration.md#torrent-clients
         "qbittorrent": {
             "torrent_client": "qbit",
-            # QUI reverse proxy: https://getqui.com/docs/features/reverse-proxy
-            # Create a Client Proxy API Key in QUI (Settings → Client Proxy Keys), pick the instance, paste the full proxy URL here.
+            # qui reverse proxy: https://getqui.com/docs/features/reverse-proxy
+            # Create a Client Proxy API Key in qui (Settings → Client Proxy Keys), pick the instance, paste the full proxy URL here.
             # Example: "http://localhost:7476/proxy/<your-client-api-key>".
-            # QUI is not used for bandwidth measurements; see docs/upload-order-and-bandwidth-control.md.
+            # qui is not used for bandwidth measurements; see docs/upload-order-and-bandwidth-control.md.
             "qui_proxy_url": "",
             # enable_search to True will automatically try and find a suitable hash to save having to rehash when creating torrents
             "enable_search": True,
@@ -3429,7 +3431,7 @@ config: dict[str, Any] = {
             "qbit_pass": "",
             # API Key authentication (stateless, qBittorrent v5.2.0+). When set, qbit_user and qbit_pass are ignored.
             "qbit_api_key": "",
-            # Optional qBittorrent BT_backup directory. Used together with QUI/API search;
+            # Optional qBittorrent BT_backup directory. Used together with qui/API search;
             # reading .torrent files locally can substantially speed up candidate validation.
             # Use double-backslashes on Windows, e.g. "C:\\Users\\<YOUR_USER>\\AppData\\Local\\qBittorrent\\BT_backup".
             # WARNING: this should not be used when using SQLite Mode for qBittorrent.
@@ -3443,9 +3445,11 @@ config: dict[str, Any] = {
             "use_tracker_as_tag": False,
             "qbit_tag": "",
             "qbit_cat": "",
-            # If using cross seeding, add cross seed tag/category here
+            # If using cross-seeding, add its qBittorrent tag/category here.
             "qbit_cross_tag": "",
             "qbit_cross_cat": "",
+            # qBittorrent content layout for all torrents added through this client.
+            # Use "Original", "Subfolder", or "NoSubfolder".
             "content_layout": "Original",
             # Choose symbolic links, hard links, or an empty value to use the original path.
             # This will disable any automatic torrent management if set.
@@ -3471,10 +3475,10 @@ config: dict[str, Any] = {
         "qbittorrent_searching": {
             # an example of using a qBitTorrent client just for searching, when using another client for injection
             "torrent_client": "qbit",
-            # QUI reverse proxy: https://getqui.com/docs/features/reverse-proxy
-            # Create a Client Proxy API Key in QUI (Settings → Client Proxy Keys), pick the instance, paste the full proxy URL here.
+            # qui reverse proxy: https://getqui.com/docs/features/reverse-proxy
+            # Create a Client Proxy API Key in qui (Settings → Client Proxy Keys), pick the instance, paste the full proxy URL here.
             # Example: "http://localhost:7476/proxy/<your-client-api-key>".
-            # QUI is not used for bandwidth measurements; see docs/upload-order-and-bandwidth-control.md.
+            # qui is not used for bandwidth measurements; see docs/upload-order-and-bandwidth-control.md.
             "qui_proxy_url": "",
             # enable_search to True will automatically try and find a suitable hash to save having to rehash when creating torrents
             "enable_search": True,

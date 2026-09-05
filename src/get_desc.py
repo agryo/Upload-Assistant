@@ -28,7 +28,7 @@ from src.mediainfo import MediaInfo
 from src.meta import Meta
 from src.screenshot_manifest import files as manifest_files
 from src.takescreens import TakeScreensManager
-from src.tracker_images import get_tracker_image_collection
+from src.tracker_images import get_tracker_image_collection, has_tracker_image_collection
 from src.trackers.common import Common
 from src.uploadscreens import UploadScreensManager
 
@@ -1319,12 +1319,11 @@ class DescriptionBuilder:
             image_list = []
         if approved_image_hosts is None:
             approved_image_hosts = []
-        if image_list:
-            images = image_list
-            multi_screens = 0
-        else:
-            images = meta.image_list
-            multi_screens = self._get_int_config("multiScreens", 2)
+        # get_tracker_image_collection falls back to meta.image_list, so only a real override
+        # replaces the base screenshots. It never disables per-file pack screenshots: those
+        # upload through allowed_hosts, so a tracker's host policy is honoured either way.
+        images = image_list if image_list and has_tracker_image_collection(meta, self.tracker, "screenshots") else meta.image_list
+        multi_screens = self._get_int_config("multiScreens", 2)
         if meta.sorted_filelist:
             multi_screens = 0
 
@@ -1520,39 +1519,53 @@ class DescriptionBuilder:
             if not description or user_description_content.strip() != meta_description.strip():
                 desc_parts.append(user_description_content)
 
-        # Menu Screenshots
-        if menu_screenshots:
-            desc_parts.append(await self.menu_section(meta))
-
-        # Tonemapped Header
-        if tonemapped_header:
-            desc_parts.append(tonemapped_header_text)
-
-        # Discs and Screenshots
-        if screenshots:
-            discs_and_screenshots = await self._handle_discs_and_screenshots(meta, approved_image_hosts, images, multi_screens)
-            desc_parts.append(discs_and_screenshots)
-
-        # Audio Spectrograms
-        if audio_spectrogram:
-            desc_parts.append(await self.get_audio_spectrogram_section(meta))
-
-        # Dynamic HDR metadata plots (Dolby Vision / HDR10+)
-        if dynamic_hdr_plot:
-            desc_parts.append(await self.get_dynamic_hdr_plot_section(meta))
-
-        # Custom Signature
-        if custom_signature:
-            desc_parts.append(await self.get_custom_signature(meta))
-
+        # Render the remaining optional sections before deciding whether a
+        # standalone screenshot section needs its heading.
+        menu_section = await self.menu_section(meta) if menu_screenshots else ""
+        tonemapped_section = tonemapped_header_text if tonemapped_header else ""
+        audio_spectrogram_section = await self.get_audio_spectrogram_section(meta) if audio_spectrogram else ""
+        dynamic_hdr_plot_section = await self.get_dynamic_hdr_plot_section(meta) if dynamic_hdr_plot else ""
+        custom_signature_section = await self.get_custom_signature(meta) if custom_signature else ""
+        
         # UA Signature Personalizada
         if ua_signature:
             if not signature:
-                script_signature = meta.ua_signature
-                base_signature = f"\n\n[center][url=https://github.com/wastaken7/Upload-Assistant]Upload realizado via {meta.ua_name} {meta.current_version} (fork)[/url][/center]"
-                custom_image = "\n\n[center][img]https://i.postimg.cc/0jnWXGbm/012-Screens.png[/img][/center]"
-                signature = base_signature + custom_image
-            desc_parts.append(signature)
+                # Monta a assinatura base + imagem personalizada
+                signature = (
+                    f"\n\n[center][url=https://github.com/wastaken7/Upload-Assistant]Upload realizado via {meta.ua_name} {meta.current_version} (fork)[/url][/center]"
+                    "\n\n[center][img]https://i.postimg.cc/0jnWXGbm/012-Screens.png[/img][/center]"
+                )
+            ua_signature_section = signature
+        else:
+            ua_signature_section = ""
+
+        other_sections = [*desc_parts, menu_section, tonemapped_section, audio_spectrogram_section, dynamic_hdr_plot_section, custom_signature_section, ua_signature_section]
+        include_screenshot_header = not (self._get_bool_config("hide_screenshot_header_if_only_section", True) and not any(part.strip() for part in other_sections))
+
+        # Menu Screenshots
+        desc_parts.append(menu_section)
+
+        # Tonemapped Header
+        desc_parts.append(tonemapped_section)
+
+        # Discs and Screenshots
+        if screenshots:
+            discs_and_screenshots = await self._handle_discs_and_screenshots(meta, approved_image_hosts, images, multi_screens, include_screenshot_header)
+            desc_parts.append(discs_and_screenshots)
+
+        # Audio Spectrograms
+        desc_parts.append(audio_spectrogram_section)
+
+        # Dynamic HDR metadata plots (Dolby Vision / HDR10+)
+        if dynamic_hdr_plot:
+            desc_parts.append(dynamic_hdr_plot_section)
+
+        # Custom Signature
+        if custom_signature:
+            desc_parts.append(custom_signature_section)
+
+        # UA Signature
+        desc_parts.append(ua_signature_section)
 
         description_str: str = "\n".join(part for part in desc_parts if part.strip())
 
@@ -1632,11 +1645,18 @@ class DescriptionBuilder:
                 logger.warning(f"[yellow]Warning: Could not load pack image data: {e!s}[/yellow]")
         return pack_images_data
 
-    async def _handle_discs_and_screenshots(self, meta: Meta, approved_image_hosts: list[str], images: list[dict[str, str]], multi_screens: int) -> str:
+    async def _handle_discs_and_screenshots(
+        self,
+        meta: Meta,
+        approved_image_hosts: list[str],
+        images: list[dict[str, str]],
+        multi_screens: int,
+        include_header: bool = True,
+    ) -> str:
         if not images:
             return ""
         try:
-            screenheader = await self.screenshot_header(meta)
+            screenheader = await self.screenshot_header(meta) if include_header else ""
         except Exception:
             screenheader = None
 
