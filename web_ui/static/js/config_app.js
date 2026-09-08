@@ -102,10 +102,93 @@ const InfoIcon = ({ className = "" }) => {
   );
 };
 
+// Reflow wrapped config comments while retaining paragraphs, lists and URLs.
+const formatConfigHelpText = (lines) =>
+  lines
+    .reduce((text, line, index) => {
+      const trimmed = String(line).trim();
+      if (!trimmed) return `${text.trimEnd()}\n\n`;
+      const startsBlock = /^(?:[-*•]\s|\d+[.)]\s|https?:\/\/|Examples?:)/i.test(
+        trimmed,
+      );
+      const followsExample = /^Examples?:/i.test(
+        String(lines[index - 1] || "").trim(),
+      );
+      const separator =
+        !text || text.endsWith("\n")
+          ? ""
+          : startsBlock || followsExample
+            ? "\n"
+            : " ";
+      return text + separator + trimmed;
+    }, "")
+    .trim();
+
+const CONFIG_HELP_SECTION_HEADINGS = {
+  console_show_time: "Console logging configuration",
+  write_log: "File logging configuration",
+  debug: "Debug configuration",
+  console_debug_show_time: "Debug console logging configuration",
+  metadata_cache_enabled: "Public metadata cache",
+  frame_overlay: "Screenshot overlays",
+  add_audio_spectrogram: "Audio spectrograms",
+};
+
+const DESCRIPTION_HELP_OVERRIDES = {
+  add_logo: "Add a TMDb show or movie logo to the top of the description.",
+  hide_screenshot_header_if_only_section:
+    "Hide the screenshot header when screenshots are the only section in the description.",
+};
+
+const getConfigHelpText = (item, pathParts) => {
+  if (
+    ["DEFAULT", "TRACKERS"].includes(pathParts[0]) &&
+    Object.hasOwn(DESCRIPTION_HELP_OVERRIDES, item.key)
+  ) {
+    return DESCRIPTION_HELP_OVERRIDES[item.key];
+  }
+  const sectionHeading =
+    pathParts[0] === "DEFAULT"
+      ? CONFIG_HELP_SECTION_HEADINGS[item.key]
+      : undefined;
+  const lines = (item.help || []).filter(
+    (line) => String(line).trim() !== sectionHeading,
+  );
+  const text = formatConfigHelpText(lines);
+  return pathParts[0] === "DEFAULT" && item.key === "midnightscene_api_key"
+    ? text.replace(/\s*Never share or commit this token\./, "")
+    : text;
+};
+
+const TRACKER_HELP_NOTE_KEYS = new Set(["announce_url", "link_dir_name"]);
+
+const renderAnnounceUrlHelpText = (text) =>
+  text.split(/(See:\s+https?:\/\/\S+)/i).map((part, index) => {
+    const reference = part.match(/^See:\s+(https?:\/\/\S+)$/i);
+    if (!reference) return part.trim();
+    const href = reference[1];
+    return (
+      <span key={index} className="block">
+        See:{" "}
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="ua-config-service-action font-semibold hover:underline"
+        >
+          {href.endsWith("#how-to-export-cookies")
+            ? "How to export cookies"
+            : href}{" "}
+          <span aria-hidden="true">↗</span>
+        </a>
+      </span>
+    );
+  });
+
 // Tooltip component
 const Tooltip = ({ children, content, className = "" }) => {
   const [isVisible, setIsVisible] = useState(false);
-  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const [position, setPosition] = useState({ top: 0, left: 0, arrowLeft: 0 });
   const triggerRef = useRef(null);
   const tooltipRef = useRef(null);
 
@@ -121,7 +204,7 @@ const Tooltip = ({ children, content, className = "" }) => {
     if (isVisible && triggerRef.current && tooltipRef.current) {
       const triggerRect = triggerRef.current.getBoundingClientRect();
       const tooltipRect = tooltipRef.current.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
+      const viewportWidth = document.documentElement.clientWidth;
 
       let top = triggerRect.top - tooltipRect.height - 8;
       let left =
@@ -138,7 +221,14 @@ const Tooltip = ({ children, content, className = "" }) => {
         left = viewportWidth - tooltipRect.width - 8;
       }
 
-      setPosition({ top, left });
+      const arrowLeft = Math.max(
+        8,
+        Math.min(
+          triggerRect.left + triggerRect.width / 2 - left,
+          tooltipRect.width - 8,
+        ),
+      );
+      setPosition({ top, left, arrowLeft });
     }
   }, [isVisible]);
 
@@ -175,10 +265,12 @@ const Tooltip = ({ children, content, className = "" }) => {
         {
           ref: tooltipRef,
           className:
-            "fixed z-50 px-3 py-2 text-sm text-white bg-gray-900 rounded-md shadow-lg pointer-events-none max-w-xs break-words",
+            "fixed z-50 px-3 py-2 text-sm leading-relaxed text-white bg-gray-900 rounded-md shadow-lg pointer-events-none break-words",
           style: {
             top: `${position.top}px`,
             left: `${position.left}px`,
+            width: "max-content",
+            maxWidth: "min(28rem, calc(100% - 1rem))",
             whiteSpace: "pre-wrap",
           },
         },
@@ -191,7 +283,7 @@ const Tooltip = ({ children, content, className = "" }) => {
               (triggerRef.current?.getBoundingClientRect().top || 0)
                 ? "-4px"
                 : "100%",
-            left: "50%",
+            left: `${position.arrowLeft}px`,
             marginLeft: "-4px",
           },
         }),
@@ -548,6 +640,7 @@ const DEFAULT_WORKFLOW_GROUPS = [
     label: "Upload Workflow",
     headings: [
       "TRACKER SEARCH AND IMPORT",
+      "PROWLARR CREDENTIAL FALLBACK",
       "TRACKER CHECKS AND UPLOAD",
       "TORRENT CREATION",
       "POST-UPLOAD",
@@ -683,6 +776,7 @@ const CONFIG_HEADING_LABELS = {
   "METADATA CACHING": "Metadata Caching",
   "MUSIC METADATA": "Music Metadata",
   "TRACKER SEARCH AND IMPORT": "Tracker Search and Import",
+  "PROWLARR CREDENTIAL FALLBACK": "Prowlarr Credential Fallback",
   "IMAGE HOSTING": "Image Hosting",
   "SCREENSHOT CAPTURE AND PROCESSING": "Screenshot Capture and Processing",
   "SCREENSHOT ENHANCEMENTS": "Screenshot Enhancements",
@@ -710,6 +804,8 @@ const CONFIG_HEADING_LABELS = {
 const CONFIG_HEADING_DESCRIPTIONS = {
   "EXTERNAL TOOL PATHS":
     "Optional executable overrides. Leave fields blank to use automatically managed tools or executables on the system PATH. Check Tools detects their availability without downloading or installing anything.",
+  "PROWLARR CREDENTIAL FALLBACK":
+    "Use enabled Prowlarr indexers as a live fallback for missing tracker API keys and cookies. Values remain in memory and local credentials take precedence.",
 };
 
 const EXTERNAL_TOOL_KEYS = [
@@ -739,6 +835,7 @@ const getConfigHeadingDescription = (value) =>
 
 const UPLOAD_WORKFLOW_HEADING_ORDER = [
   "TRACKER SEARCH AND IMPORT",
+  "PROWLARR CREDENTIAL FALLBACK",
   "TRACKER CHECKS",
   "TORRENT CREATION",
   "UPLOAD BEHAVIOUR",
@@ -924,6 +1021,8 @@ const isSensitiveKeyForPath = (key, pathParts) =>
 const isReadOnlyKeyForPath = (key, pathParts) =>
   pathParts.includes("TORRENT_CLIENTS") && key === "torrent_client";
 const DISPLAY_LABEL_OVERRIDES = {
+  tag_overrides: "Release Group Overrides",
+  hide_screenshot_header_if_only_section: "Hide Standalone Screenshot Header",
   multiScreens: "Multiple Screenshots",
   charLimit: "Character Limit",
   fileLimit: "File Limit",
@@ -1176,6 +1275,14 @@ const INLINE_FIELD_HELP = {
   btn_api: {
     description:
       "Enter the BTN API key used to retrieve metadata from BroadcasTheNet.",
+  },
+  prowlarr_url: {
+    description:
+      "Enter the Prowlarr base URL. The connection is used only when both fields are set.",
+  },
+  prowlarr_api_key: {
+    description:
+      "Used to read enabled indexer credentials at the start of each run. Retrieved values are never saved by UA.",
   },
 };
 
@@ -1537,6 +1644,415 @@ const SelectDropdown = ({
     </select>
   );
 };
+
+// ISO 639-1 options from pycountry 24.6.1, including English display names.
+const LOGO_LANGUAGE_OPTIONS = [
+  { value: "", label: "Default (English)" },
+  { value: "ab", label: "Abkhazian (ab)" },
+  { value: "aa", label: "Afar (aa)" },
+  { value: "af", label: "Afrikaans (af)" },
+  { value: "ak", label: "Akan (ak)" },
+  { value: "sq", label: "Albanian (sq)" },
+  { value: "am", label: "Amharic (am)" },
+  { value: "ar", label: "Arabic (ar)" },
+  { value: "an", label: "Aragonese (an)" },
+  { value: "hy", label: "Armenian (hy)" },
+  { value: "as", label: "Assamese (as)" },
+  { value: "av", label: "Avaric (av)" },
+  { value: "ae", label: "Avestan (ae)" },
+  { value: "ay", label: "Aymara (ay)" },
+  { value: "az", label: "Azerbaijani (az)" },
+  { value: "bm", label: "Bambara (bm)" },
+  { value: "ba", label: "Bashkir (ba)" },
+  { value: "eu", label: "Basque (eu)" },
+  { value: "be", label: "Belarusian (be)" },
+  { value: "bn", label: "Bangla (bn)" },
+  { value: "bi", label: "Bislama (bi)" },
+  { value: "bs", label: "Bosnian (bs)" },
+  { value: "br", label: "Breton (br)" },
+  { value: "bg", label: "Bulgarian (bg)" },
+  { value: "my", label: "Burmese (my)" },
+  { value: "ca", label: "Catalan (ca)" },
+  { value: "ch", label: "Chamorro (ch)" },
+  { value: "ce", label: "Chechen (ce)" },
+  { value: "zh", label: "Chinese (zh)" },
+  { value: "cu", label: "Church Slavic (cu)" },
+  { value: "cv", label: "Chuvash (cv)" },
+  { value: "kw", label: "Cornish (kw)" },
+  { value: "co", label: "Corsican (co)" },
+  { value: "cr", label: "Cree (cr)" },
+  { value: "hr", label: "Croatian (hr)" },
+  { value: "cs", label: "Czech (cs)" },
+  { value: "da", label: "Danish (da)" },
+  { value: "dv", label: "Dhivehi (dv)" },
+  { value: "nl", label: "Dutch (nl)" },
+  { value: "dz", label: "Dzongkha (dz)" },
+  { value: "en", label: "English (en)" },
+  { value: "eo", label: "Esperanto (eo)" },
+  { value: "et", label: "Estonian (et)" },
+  { value: "ee", label: "Ewe (ee)" },
+  { value: "fo", label: "Faroese (fo)" },
+  { value: "fj", label: "Fijian (fj)" },
+  { value: "fi", label: "Finnish (fi)" },
+  { value: "fr", label: "French (fr)" },
+  { value: "ff", label: "Fulah (ff)" },
+  { value: "gl", label: "Galician (gl)" },
+  { value: "lg", label: "Ganda (lg)" },
+  { value: "ka", label: "Georgian (ka)" },
+  { value: "de", label: "German (de)" },
+  { value: "gn", label: "Guarani (gn)" },
+  { value: "gu", label: "Gujarati (gu)" },
+  { value: "ht", label: "Haitian (ht)" },
+  { value: "ha", label: "Hausa (ha)" },
+  { value: "he", label: "Hebrew (he)" },
+  { value: "hz", label: "Herero (hz)" },
+  { value: "hi", label: "Hindi (hi)" },
+  { value: "ho", label: "Hiri Motu (ho)" },
+  { value: "hu", label: "Hungarian (hu)" },
+  { value: "is", label: "Icelandic (is)" },
+  { value: "io", label: "Ido (io)" },
+  { value: "ig", label: "Igbo (ig)" },
+  { value: "id", label: "Indonesian (id)" },
+  {
+    value: "ia",
+    label: "Interlingua (International Auxiliary Language Association) (ia)",
+  },
+  { value: "ie", label: "Interlingue (ie)" },
+  { value: "iu", label: "Inuktitut (iu)" },
+  { value: "ik", label: "Inupiaq (ik)" },
+  { value: "ga", label: "Irish (ga)" },
+  { value: "it", label: "Italian (it)" },
+  { value: "ja", label: "Japanese (ja)" },
+  { value: "jv", label: "Javanese (jv)" },
+  { value: "kl", label: "Kalaallisut (kl)" },
+  { value: "kn", label: "Kannada (kn)" },
+  { value: "kr", label: "Kanuri (kr)" },
+  { value: "ks", label: "Kashmiri (ks)" },
+  { value: "kk", label: "Kazakh (kk)" },
+  { value: "km", label: "Khmer (km)" },
+  { value: "ki", label: "Kikuyu (ki)" },
+  { value: "rw", label: "Kinyarwanda (rw)" },
+  { value: "ky", label: "Kirghiz (ky)" },
+  { value: "kv", label: "Komi (kv)" },
+  { value: "kg", label: "Kongo (kg)" },
+  { value: "ko", label: "Korean (ko)" },
+  { value: "kj", label: "Kuanyama (kj)" },
+  { value: "ku", label: "Kurdish (ku)" },
+  { value: "lo", label: "Lao (lo)" },
+  { value: "la", label: "Latin (la)" },
+  { value: "lv", label: "Latvian (lv)" },
+  { value: "li", label: "Limburgan (li)" },
+  { value: "ln", label: "Lingala (ln)" },
+  { value: "lt", label: "Lithuanian (lt)" },
+  { value: "lu", label: "Luba-Katanga (lu)" },
+  { value: "lb", label: "Luxembourgish (lb)" },
+  { value: "mk", label: "Macedonian (mk)" },
+  { value: "mg", label: "Malagasy (mg)" },
+  { value: "ms", label: "Malay (macrolanguage) (ms)" },
+  { value: "ml", label: "Malayalam (ml)" },
+  { value: "mt", label: "Maltese (mt)" },
+  { value: "gv", label: "Manx (gv)" },
+  { value: "mi", label: "Maori (mi)" },
+  { value: "mr", label: "Marathi (mr)" },
+  { value: "mh", label: "Marshallese (mh)" },
+  { value: "el", label: "Modern Greek (1453-) (el)" },
+  { value: "mn", label: "Mongolian (mn)" },
+  { value: "na", label: "Nauru (na)" },
+  { value: "nv", label: "Navajo (nv)" },
+  { value: "ng", label: "Ndonga (ng)" },
+  { value: "ne", label: "Nepali (macrolanguage) (ne)" },
+  { value: "nd", label: "North Ndebele (nd)" },
+  { value: "se", label: "Northern Sami (se)" },
+  { value: "no", label: "Norwegian (no)" },
+  { value: "nb", label: "Norwegian Bokmål (nb)" },
+  { value: "nn", label: "Norwegian Nynorsk (nn)" },
+  { value: "ny", label: "Nyanja (ny)" },
+  { value: "oc", label: "Occitan (post 1500) (oc)" },
+  { value: "oj", label: "Ojibwa (oj)" },
+  { value: "or", label: "Oriya (macrolanguage) (or)" },
+  { value: "om", label: "Oromo (om)" },
+  { value: "os", label: "Ossetian (os)" },
+  { value: "pi", label: "Pali (pi)" },
+  { value: "pa", label: "Panjabi (pa)" },
+  { value: "fa", label: "Persian (fa)" },
+  { value: "pl", label: "Polish (pl)" },
+  { value: "pt", label: "Portuguese (pt)" },
+  { value: "ps", label: "Pushto (ps)" },
+  { value: "qu", label: "Quechua (qu)" },
+  { value: "ro", label: "Romanian (ro)" },
+  { value: "rm", label: "Romansh (rm)" },
+  { value: "rn", label: "Rundi (rn)" },
+  { value: "ru", label: "Russian (ru)" },
+  { value: "sm", label: "Samoan (sm)" },
+  { value: "sg", label: "Sango (sg)" },
+  { value: "sa", label: "Sanskrit (sa)" },
+  { value: "sc", label: "Sardinian (sc)" },
+  { value: "gd", label: "Scottish Gaelic (gd)" },
+  { value: "sr", label: "Serbian (sr)" },
+  { value: "sh", label: "Serbo-Croatian (sh)" },
+  { value: "sn", label: "Shona (sn)" },
+  { value: "ii", label: "Sichuan Yi (ii)" },
+  { value: "sd", label: "Sindhi (sd)" },
+  { value: "si", label: "Sinhala (si)" },
+  { value: "sk", label: "Slovak (sk)" },
+  { value: "sl", label: "Slovenian (sl)" },
+  { value: "so", label: "Somali (so)" },
+  { value: "nr", label: "South Ndebele (nr)" },
+  { value: "st", label: "Southern Sotho (st)" },
+  { value: "es", label: "Spanish (es)" },
+  { value: "su", label: "Sundanese (su)" },
+  { value: "sw", label: "Swahili (macrolanguage) (sw)" },
+  { value: "ss", label: "Swati (ss)" },
+  { value: "sv", label: "Swedish (sv)" },
+  { value: "tl", label: "Tagalog (tl)" },
+  { value: "ty", label: "Tahitian (ty)" },
+  { value: "tg", label: "Tajik (tg)" },
+  { value: "ta", label: "Tamil (ta)" },
+  { value: "tt", label: "Tatar (tt)" },
+  { value: "te", label: "Telugu (te)" },
+  { value: "th", label: "Thai (th)" },
+  { value: "bo", label: "Tibetan (bo)" },
+  { value: "ti", label: "Tigrinya (ti)" },
+  { value: "to", label: "Tonga (Tonga Islands) (to)" },
+  { value: "ts", label: "Tsonga (ts)" },
+  { value: "tn", label: "Tswana (tn)" },
+  { value: "tr", label: "Turkish (tr)" },
+  { value: "tk", label: "Turkmen (tk)" },
+  { value: "tw", label: "Twi (tw)" },
+  { value: "ug", label: "Uighur (ug)" },
+  { value: "uk", label: "Ukrainian (uk)" },
+  { value: "ur", label: "Urdu (ur)" },
+  { value: "uz", label: "Uzbek (uz)" },
+  { value: "ve", label: "Venda (ve)" },
+  { value: "vi", label: "Vietnamese (vi)" },
+  { value: "vo", label: "Volapük (vo)" },
+  { value: "wa", label: "Walloon (wa)" },
+  { value: "cy", label: "Welsh (cy)" },
+  { value: "fy", label: "Western Frisian (fy)" },
+  { value: "wo", label: "Wolof (wo)" },
+  { value: "xh", label: "Xhosa (xh)" },
+  { value: "yi", label: "Yiddish (yi)" },
+  { value: "yo", label: "Yoruba (yo)" },
+  { value: "za", label: "Zhuang (za)" },
+  { value: "zu", label: "Zulu (zu)" },
+];
+
+/** Search language names and codes without changing the value until selection. */
+function LogoLanguageSelect({ id, value, onChange }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [menuPosition, setMenuPosition] = useState(null);
+  const inputRef = useRef(null);
+  const optionsRef = useRef(null);
+  const currentValue = value == null ? "" : String(value);
+  const options = LOGO_LANGUAGE_OPTIONS.some(
+    (option) => option.value === currentValue,
+  )
+    ? LOGO_LANGUAGE_OPTIONS
+    : [
+        ...LOGO_LANGUAGE_OPTIONS,
+        { value: currentValue, label: `Existing value: ${currentValue}` },
+      ];
+  const selectedLabel = options.find(
+    (option) => option.value === currentValue,
+  ).label;
+  const search = query.trim().toLowerCase();
+  const filteredOptions = options
+    .filter((option) => option.label.toLowerCase().includes(search))
+    .sort((a, b) => Number(b.value === search) - Number(a.value === search));
+  const listId = `${id}--options`;
+  const menuIsPositioned = menuPosition !== null;
+
+  React.useLayoutEffect(() => {
+    if (!isOpen) return undefined;
+    const positionMenu = () => {
+      const bounds = inputRef.current.getBoundingClientRect();
+      const viewportHeight = document.documentElement.clientHeight;
+      const spaceBelow = viewportHeight - bounds.bottom - 8;
+      const spaceAbove = bounds.top - 8;
+      const above = spaceBelow < Math.min(240, spaceAbove);
+      setMenuPosition({
+        left: bounds.left,
+        width: bounds.width,
+        maxHeight: Math.min(240, Math.max(0, above ? spaceAbove : spaceBelow)),
+        ...(above
+          ? { bottom: viewportHeight - bounds.top + 4 }
+          : { top: bounds.bottom + 4 }),
+      });
+    };
+    positionMenu();
+    window.addEventListener("resize", positionMenu);
+    document.addEventListener("scroll", positionMenu, true);
+    return () => {
+      window.removeEventListener("resize", positionMenu);
+      document.removeEventListener("scroll", positionMenu, true);
+    };
+  }, [isOpen]);
+
+  React.useLayoutEffect(() => {
+    if (!isOpen) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      const option = optionsRef.current?.children[activeIndex];
+      const menu = optionsRef.current?.parentElement;
+      if (!option || !menu) return;
+      const top = option.offsetTop;
+      const bottom = top + option.offsetHeight;
+      if (top < menu.scrollTop) {
+        menu.scrollTop = top;
+      } else if (bottom > menu.scrollTop + menu.clientHeight) {
+        menu.scrollTop = bottom - menu.clientHeight;
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [isOpen, activeIndex, query, menuIsPositioned]);
+
+  const openOptions = () => {
+    setQuery("");
+    setActiveIndex(
+      Math.max(
+        0,
+        options.findIndex((option) => option.value === currentValue),
+      ),
+    );
+    setIsOpen(true);
+  };
+
+  const chooseOption = (option) => {
+    onChange(option.value);
+    setIsOpen(false);
+    setQuery("");
+  };
+
+  return (
+    <div className={`relative ${isOpen ? "z-30" : ""}`}>
+      <div className="relative">
+        <input
+          ref={inputRef}
+          id={id}
+          type="text"
+          role="combobox"
+          autoComplete="off"
+          spellCheck={false}
+          aria-autocomplete="list"
+          aria-expanded={isOpen}
+          aria-controls={isOpen ? listId : undefined}
+          aria-activedescendant={
+            isOpen && filteredOptions[activeIndex]
+              ? `${listId}--${activeIndex}`
+              : undefined
+          }
+          value={isOpen ? query : selectedLabel}
+          placeholder="Search languages or codes…"
+          className="ua-config-input w-full rounded-md border py-2 pl-3 pr-10"
+          onFocus={openOptions}
+          onClick={() => {
+            if (!isOpen) openOptions();
+          }}
+          onBlur={() => setIsOpen(false)}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setActiveIndex(0);
+            setIsOpen(true);
+          }}
+          onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing) return;
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              event.preventDefault();
+              if (!isOpen) {
+                openOptions();
+              } else {
+                setActiveIndex((index) =>
+                  Math.max(
+                    0,
+                    Math.min(
+                      filteredOptions.length - 1,
+                      index + (event.key === "ArrowDown" ? 1 : -1),
+                    ),
+                  ),
+                );
+              }
+            } else if (event.key === "Enter" && isOpen) {
+              event.preventDefault();
+              if (filteredOptions[activeIndex]) {
+                chooseOption(filteredOptions[activeIndex]);
+              }
+            } else if (event.key === "Escape" && isOpen) {
+              event.preventDefault();
+              event.stopPropagation();
+              setIsOpen(false);
+            }
+          }}
+        />
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-label={isOpen ? "Close logo languages" : "Show logo languages"}
+          className="ua-config-service-action absolute inset-y-0 right-0 flex w-10 items-center justify-center"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            if (isOpen) {
+              setIsOpen(false);
+            } else {
+              inputRef.current?.focus();
+              openOptions();
+            }
+          }}
+        >
+          <svg
+            className="h-4 w-4"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            aria-hidden="true"
+          >
+            <path d={isOpen ? "m6 15 6-6 6 6" : "m6 9 6 6 6-6"} />
+          </svg>
+        </button>
+      </div>
+      {isOpen &&
+        menuPosition &&
+        ReactDOM.createPortal(
+          <div
+            style={menuPosition}
+            className="ua-config-multiselect-menu fixed z-50 overflow-auto rounded-lg border shadow-lg"
+          >
+            <div
+              id={listId}
+              ref={optionsRef}
+              role="listbox"
+              aria-label="Logo languages"
+            >
+              {filteredOptions.map((option, index) => (
+                <div
+                  key={option.value}
+                  id={`${listId}--${index}`}
+                  role="option"
+                  aria-selected={index === activeIndex}
+                  data-selected={index === activeIndex ? "true" : "false"}
+                  className="ua-config-multiselect-option cursor-pointer break-words px-3 py-2 text-sm"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => chooseOption(option)}
+                >
+                  {option.label}
+                </div>
+              ))}
+            </div>
+            {filteredOptions.length === 0 && (
+              <p
+                role="status"
+                className="ua-config-service-description px-3 py-2 text-sm"
+              >
+                No matching languages
+              </p>
+            )}
+          </div>,
+          inputRef.current.closest(".ua-config-page"),
+        )}
+    </div>
+  );
+}
 
 function StringListEditor({
   value,
@@ -2006,6 +2522,7 @@ function ConfigLeafEditor({
   fullWidth,
   inlineBooleanLabel,
   labelOverride,
+  hideHelp = false,
   allImageHosts,
   usedImageHosts,
   torrentClients,
@@ -2020,18 +2537,21 @@ function ConfigLeafEditor({
   const isSuperSeedTrackerField =
     pathParts.includes("TORRENT_CLIENTS") && item.key === "super_seed_trackers";
 
-  const helpBelongsToSection = path.join("/") === "DEFAULT/ffmpeg_path";
+  const helpBelongsToSection =
+    pathParts[0] === "DEFAULT" &&
+    ["ffmpeg_path", "upload_order"].includes(item.key);
   const helpBelongsToTorrentClientLinkingNote =
     pathParts.includes("TORRENT_CLIENTS") &&
     ["linking", "allow_fallback", "linked_folder"].includes(item.key);
+  const helpBelongsToTorrentClientSearchNote =
+    pathParts.includes("TORRENT_CLIENTS") && item.key === "enable_search";
   const helpBelongsToTorrentStorageNote =
     pathParts.includes("TORRENT_CLIENTS") &&
     item.key === "torrent_storage_dir" &&
     Array.isArray(item.help) &&
     item.help.some((line) => /SQLite Mode/i.test(String(line)));
   const helpBelongsToTorrentClientOrganizationNote =
-    pathParts.includes("TORRENT_CLIENTS") &&
-    item.key === "use_tracker_as_tag";
+    pathParts.includes("TORRENT_CLIENTS") && item.key === "use_tracker_as_tag";
   const helpBelongsToTorrentClientCrossSeedNote =
     pathParts.includes("TORRENT_CLIENTS") &&
     ["qbit_cross_tag", "qbit_cross_cat", "content_layout"].includes(item.key);
@@ -2040,16 +2560,16 @@ function ConfigLeafEditor({
     (REDUNDANT_IMAGE_HOST_API_HELP_KEYS.has(item.key) ||
       /^img_host_[1-6]$/.test(item.key));
   const helpText =
+    !hideHelp &&
     !helpBelongsToSection &&
     !helpBelongsToTorrentClientLinkingNote &&
+    !helpBelongsToTorrentClientSearchNote &&
     !helpBelongsToTorrentStorageNote &&
     !helpBelongsToTorrentClientOrganizationNote &&
     !helpBelongsToTorrentClientCrossSeedNote &&
     !hideRedundantImageHostHelp &&
-    !isSuperSeedTrackerField &&
-    item.help &&
-    item.help.length
-      ? item.help.join("\n")
+    !isSuperSeedTrackerField
+      ? getConfigHelpText(item, pathParts)
       : "";
   const labelClass = isDarkMode
     ? `${inlineBooleanLabel ? "text-[15px] font-semibold" : "text-sm font-medium"} text-gray-200`
@@ -2233,6 +2753,39 @@ function ConfigLeafEditor({
     }
     setSelected(selections);
   };
+
+  if (item.key === "logo_language" && pathParts[0] === "DEFAULT") {
+    const originalValue = item.value == null ? "" : String(item.value);
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <label htmlFor={fieldId} className={labelClass}>
+            {displayLabel}
+          </label>
+          {helpText && (
+            <Tooltip content={helpText}>
+              <InfoIcon
+                className={`h-4 w-4 ${isDarkMode ? "text-gray-400 hover:text-gray-300" : "text-gray-500 hover:text-gray-600"}`}
+              />
+            </Tooltip>
+          )}
+        </div>
+        <LogoLanguageSelect
+          id={fieldId}
+          value={selectedValue}
+          onChange={(nextValue) => {
+            setSelectedValue(nextValue);
+            onValueChange(path, nextValue, {
+              originalValue,
+              isSensitive: false,
+              isRedacted: false,
+              readOnly: false,
+            });
+          }}
+        />
+      </div>
+    );
+  }
 
   if (isPersonalReleaseGroupField || isSuperSeedTrackerField) {
     const originalValue = JSON.stringify(item.value);
@@ -3423,23 +3976,143 @@ function MetadataCacheServices({
   );
 }
 
+/** Keep disabled text across settings pages until the editing session is reset. */
+const ReleaseGroupDraftContext = React.createContext(null);
+
+/** Read stored or staged overrides without substituting example groups. */
+const parseReleaseGroupOverrides = (value) => {
+  try {
+    const groups =
+      typeof value === "string" ? JSON.parse(value) : (value ?? {});
+    return groups &&
+      typeof groups === "object" &&
+      !Array.isArray(groups) &&
+      Object.values(groups).every(
+        (fields) =>
+          fields && typeof fields === "object" && !Array.isArray(fields),
+      )
+      ? groups
+      : null;
+  } catch {
+    return null;
+  }
+};
+
+/** Compare mappings consistently when edits restore the original configuration. */
+const serializeReleaseGroupOverrides = (groups) =>
+  JSON.stringify(
+    Object.fromEntries(
+      Object.keys(groups)
+        .sort()
+        .map((name) => [
+          name,
+          Object.fromEntries(
+            Object.keys(groups[name])
+              .sort()
+              .map((key) => [key, groups[name][key]]),
+          ),
+        ]),
+    ),
+  );
+
 function ReleaseGroupOverrides({
   item,
   pathParts,
-  depth,
-  isDarkMode,
-  allImageHosts,
-  usedImageHosts,
-  expandedGroups,
-  toggleGroup,
-  torrentClients,
+  pendingValue,
   onValueChange,
 }) {
-  const groupKey = [...pathParts, item.key].join("/");
-  const isOpen = expandedGroups.has(groupKey);
-  const releaseGroups = item.children || [];
-  const helpText = (item.help || []).join(" ");
-  const groupLabel = releaseGroups.length === 1 ? "group" : "groups";
+  const draftCache = React.useContext(ReleaseGroupDraftContext);
+  const [isOpen, setIsOpen] = useState(false);
+  const [openNames, setOpenNames] = useState(new Set());
+  const [newName, setNewName] = useState("");
+  const [renameTarget, setRenameTarget] = useState(null);
+  const [renameName, setRenameName] = useState("");
+  const [error, setError] = useState("");
+  const originalGroups = parseReleaseGroupOverrides(item.value);
+  const groups = parseReleaseGroupOverrides(pendingValue ?? item.value);
+  const fields = item.override_fields || [];
+  const path = [...pathParts, item.key];
+  const pathKey = path.join("/");
+  const fieldPrefix = path.join("--");
+  const groupNames = Object.keys(groups || {});
+
+  const setFieldEnabled = (name, key, enabled) => {
+    const nextValues = { ...groups[name] };
+    if (enabled) {
+      nextValues[key] =
+        draftCache.current.get(pathKey)?.get(name)?.get(key) ?? "";
+    } else {
+      // Remember disabled text only for this editing session, outside the saved map.
+      const scopeDrafts = draftCache.current.get(pathKey) || new Map();
+      const groupDrafts = scopeDrafts.get(name) || new Map();
+      groupDrafts.set(key, nextValues[key]);
+      scopeDrafts.set(name, groupDrafts);
+      draftCache.current.set(pathKey, scopeDrafts);
+      delete nextValues[key];
+    }
+    updateGroups({ ...groups, [name]: nextValues });
+  };
+
+  const updateGroups = (nextGroups) =>
+    onValueChange(path, serializeReleaseGroupOverrides(nextGroups), {
+      originalValue: serializeReleaseGroupOverrides(originalGroups),
+      isSensitive: false,
+      isRedacted: false,
+      readOnly: false,
+    });
+
+  const validateName = (name, currentName = null) => {
+    const normalize = (value) => value.trim().replace(/^-+/, "").toLowerCase();
+    if (!normalize(name) || [...name].some((char) => char.charCodeAt(0) < 32)) {
+      return "Enter a release group name.";
+    }
+    if (
+      groupNames.some(
+        (existing) =>
+          existing !== currentName && normalize(existing) === normalize(name),
+      )
+    ) {
+      return "That release group already exists. Case and leading hyphens are ignored.";
+    }
+    return "";
+  };
+
+  const addGroup = () => {
+    setRenameTarget(null);
+    const name = newName.trim();
+    const message = validateName(name);
+    setError(message);
+    if (message) return;
+    updateGroups({ ...groups, [name]: {} });
+    setOpenNames((current) => new Set([...current, name]));
+    setNewName("");
+  };
+
+  const renameGroup = () => {
+    const name = renameName.trim();
+    const message = validateName(name, renameTarget);
+    setError(message);
+    if (message) return;
+    const scopeDrafts = draftCache.current.get(pathKey);
+    if (scopeDrafts?.has(renameTarget)) {
+      const groupDrafts = scopeDrafts.get(renameTarget);
+      scopeDrafts.delete(renameTarget);
+      scopeDrafts.set(name, groupDrafts);
+    }
+    updateGroups(
+      Object.fromEntries(
+        Object.entries(groups).map(([key, values]) => [
+          key === renameTarget ? name : key,
+          values,
+        ]),
+      ),
+    );
+    setOpenNames(
+      (current) =>
+        new Set([...current].map((key) => (key === renameTarget ? name : key))),
+    );
+    setRenameTarget(null);
+  };
 
   return (
     <section
@@ -3448,7 +4121,7 @@ function ReleaseGroupOverrides({
     >
       <button
         type="button"
-        onClick={() => toggleGroup(groupKey)}
+        onClick={() => setIsOpen((open) => !open)}
         className="ua-config-accordion-trigger flex w-full items-center justify-between gap-4 px-4 py-3 text-left"
         aria-expanded={isOpen}
       >
@@ -3456,117 +4129,286 @@ function ReleaseGroupOverrides({
           <span className="block text-sm font-semibold">
             Release Group Overrides
           </span>
-          {helpText && (
-            <span className="ua-config-service-description mt-1 block text-xs font-normal">
-              {helpText}
-            </span>
-          )}
+          <span className="ua-config-service-description mt-1 block text-xs font-normal">
+            {pathParts[0] === "TRACKERS"
+              ? "Override description text for release groups on this tracker."
+              : "Override description text for specific release groups."}
+          </span>
         </span>
-        <span className="flex shrink-0 items-center gap-3">
-          <span className="ua-config-service-action hidden text-xs font-medium sm:inline">
-            {isOpen
-              ? `Hide ${groupLabel}`
-              : `Show ${releaseGroups.length} ${groupLabel}`}
-          </span>
-          <span
-            className="ua-config-accordion-chevron transition-transform"
-            style={{
-              transform: isOpen ? "rotate(90deg)" : "rotate(0deg)",
-            }}
-            aria-hidden="true"
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="m9 18 6-6-6-6"></path>
-            </svg>
-          </span>
+        <span className="ua-config-service-action shrink-0 text-xs font-medium">
+          {isOpen
+            ? "Hide"
+            : `Show ${groupNames.length} ${groupNames.length === 1 ? "group" : "groups"}`}
         </span>
       </button>
-
       {isOpen && (
-        <div className="ua-config-accordion-panel space-y-3 border-t p-4">
-          {releaseGroups.map((releaseGroup) => {
-            const releaseGroupKey = [
-              ...pathParts,
-              item.key,
-              releaseGroup.key,
-            ].join("/");
-            const isReleaseGroupOpen = expandedGroups.has(releaseGroupKey);
-            const fields = releaseGroup.children || [];
-            return (
-              <div
-                key={releaseGroupKey}
-                className="ua-config-accordion overflow-hidden rounded-lg border"
-                data-open={isReleaseGroupOpen ? "true" : "false"}
-              >
-                <button
-                  type="button"
-                  onClick={() => toggleGroup(releaseGroupKey)}
-                  className="ua-config-accordion-trigger flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
-                  aria-expanded={isReleaseGroupOpen}
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-semibold">
-                      {releaseGroup.key}
-                    </span>
-                    <span className="ua-config-service-description mt-1 block text-xs font-normal">
-                      {fields.length} description overrides
-                    </span>
-                  </span>
-                  <span
-                    className="ua-config-accordion-chevron shrink-0 transition-transform"
-                    style={{
-                      transform: isReleaseGroupOpen
-                        ? "rotate(90deg)"
-                        : "rotate(0deg)",
-                    }}
-                    aria-hidden="true"
+        <div className="ua-config-accordion-panel space-y-4 border-t p-4">
+          {!originalGroups || !groups ? (
+            <p role="alert" className="text-sm text-red-500">
+              The existing release group configuration is not a dictionary of
+              groups. Correct it in config.py before editing here.
+            </p>
+          ) : (
+            <>
+              <p className="ua-config-service-description text-xs leading-relaxed">
+                For matching release groups, these overrides take priority over
+                ordinary tracker and global settings. Tracker-specific group
+                overrides take priority over global group overrides.
+              </p>
+              <p className="ua-config-service-description text-xs leading-relaxed">
+                Names are matched without case or leading hyphens. Tick a field
+                to enable its override. Disabled fields inherit their usual
+                text; an enabled field left empty uses blank text.
+              </p>
+              {groupNames.length === 0 && (
+                <p className="ua-config-service-description text-sm">
+                  No release group overrides configured.
+                </p>
+              )}
+              {groupNames.map((name) => {
+                const values = groups[name];
+                const isGroupOpen = openNames.has(name);
+                const activeCount = Object.values(values).filter(
+                  (value) => value !== null,
+                ).length;
+                const additionalKeys = Object.keys(values).filter(
+                  (key) => !fields.some((field) => field.key === key),
+                );
+                return (
+                  <div
+                    key={name}
+                    className="ua-config-accordion overflow-hidden rounded-lg border"
+                    data-open={isGroupOpen ? "true" : "false"}
                   >
-                    <svg
-                      width="18"
-                      height="18"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="m9 18 6-6-6-6"></path>
-                    </svg>
-                  </span>
-                </button>
-                {isReleaseGroupOpen && (
-                  <div className="ua-config-accordion-panel border-t p-4">
-                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-                      {fields.map((field) => (
-                        <ConfigLeaf
-                          key={`${releaseGroupKey}/${field.key}`}
-                          item={field}
-                          pathParts={[...pathParts, item.key, releaseGroup.key]}
-                          depth={depth + 2}
-                          isDarkMode={isDarkMode}
-                          fullWidth={true}
-                          allImageHosts={allImageHosts}
-                          usedImageHosts={usedImageHosts}
-                          torrentClients={torrentClients}
-                          onValueChange={onValueChange}
-                        />
-                      ))}
+                    <div className="ua-config-accordion-trigger flex flex-wrap items-center gap-2 px-3 py-2">
+                      <button
+                        type="button"
+                        aria-expanded={isGroupOpen}
+                        aria-label={`Edit overrides for ${name}`}
+                        className="flex min-w-0 flex-1 items-center gap-2 py-1 text-left"
+                        onClick={() =>
+                          setOpenNames((current) => {
+                            const next = new Set(current);
+                            if (next.has(name)) next.delete(name);
+                            else next.add(name);
+                            return next;
+                          })
+                        }
+                      >
+                        <svg
+                          className="ua-config-accordion-chevron shrink-0 transition-transform"
+                          style={{
+                            transform: isGroupOpen
+                              ? "rotate(90deg)"
+                              : "rotate(0deg)",
+                          }}
+                          width="18"
+                          height="18"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="m9 18 6-6-6-6" />
+                        </svg>
+                        <span className="min-w-0">
+                          <span className="block break-words text-sm font-semibold">
+                            {name}
+                          </span>
+                          <span className="ua-config-service-description block text-xs">
+                            {activeCount}{" "}
+                            {activeCount === 1 ? "override" : "overrides"}
+                          </span>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Rename group ${name}`}
+                        className="ua-config-service-action rounded-md border px-2.5 py-1.5 text-xs font-semibold"
+                        onClick={() => {
+                          setRenameTarget(name);
+                          setRenameName(name);
+                          setError("");
+                        }}
+                      >
+                        Rename
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Remove group ${name}`}
+                        className="rounded-md border border-red-500/40 px-2.5 py-1.5 text-xs font-semibold text-red-500 hover:bg-red-500/10"
+                        onClick={() => {
+                          draftCache.current.get(pathKey)?.delete(name);
+                          updateGroups(
+                            Object.fromEntries(
+                              Object.entries(groups).filter(
+                                ([key]) => key !== name,
+                              ),
+                            ),
+                          );
+                          if (renameTarget === name) setRenameTarget(null);
+                          setError("");
+                        }}
+                      >
+                        Remove
+                      </button>
                     </div>
+                    {renameTarget === name && (
+                      <form
+                        className="flex flex-wrap items-end gap-2 border-t p-3"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          renameGroup();
+                        }}
+                      >
+                        <label className="w-full text-xs font-medium sm:min-w-0 sm:flex-1">
+                          New name for {name}
+                          <input
+                            value={renameName}
+                            onChange={(event) =>
+                              setRenameName(event.target.value)
+                            }
+                            className="ua-config-input mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                          />
+                        </label>
+                        <button
+                          type="submit"
+                          className="ua-config-service-action rounded-md border px-3 py-2 text-xs font-semibold"
+                        >
+                          Apply name
+                        </button>
+                        <button
+                          type="button"
+                          className="ua-config-service-action rounded-md border px-3 py-2 text-xs"
+                          onClick={() => {
+                            setRenameTarget(null);
+                            setError("");
+                          }}
+                        >
+                          Cancel
+                        </button>
+                        {error && (
+                          <p
+                            role="alert"
+                            className="w-full text-sm text-red-500"
+                          >
+                            {error}
+                          </p>
+                        )}
+                      </form>
+                    )}
+                    {isGroupOpen && (
+                      <div className="ua-config-accordion-panel space-y-3 border-t p-4">
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+                          {fields.map((field) => {
+                            const label = formatConfigFieldLabel(
+                              field.key,
+                              path,
+                            );
+                            const enabled =
+                              Object.hasOwn(values, field.key) &&
+                              values[field.key] !== null;
+                            const textId = `${fieldPrefix}--${encodeURIComponent(name)}--${field.key}`;
+                            return (
+                              <div
+                                key={field.key}
+                                className="flex min-w-0 flex-col gap-2"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <label className="flex min-w-0 cursor-pointer items-center gap-2 text-sm font-medium">
+                                    <input
+                                      type="checkbox"
+                                      checked={enabled}
+                                      aria-label={`Override ${label} for ${name}`}
+                                      className="ua-theme-checkbox h-4 w-4 shrink-0"
+                                      onChange={(event) =>
+                                        setFieldEnabled(
+                                          name,
+                                          field.key,
+                                          event.target.checked,
+                                        )
+                                      }
+                                    />
+                                    <span>{label}</span>
+                                  </label>
+                                  {field.help?.length > 0 && (
+                                    <Tooltip content={field.help.join("\n")}>
+                                      <InfoIcon className="ua-config-service-description h-4 w-4 shrink-0" />
+                                    </Tooltip>
+                                  )}
+                                </div>
+                                <input
+                                  id={textId}
+                                  type="text"
+                                  aria-label={`${label} for ${name}`}
+                                  disabled={!enabled}
+                                  value={
+                                    enabled
+                                      ? values[field.key]
+                                      : (draftCache.current
+                                          .get(pathKey)
+                                          ?.get(name)
+                                          ?.get(field.key) ?? "")
+                                  }
+                                  className="ua-config-input mt-auto w-full rounded-md border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                                  onChange={(event) =>
+                                    updateGroups({
+                                      ...groups,
+                                      [name]: {
+                                        ...values,
+                                        [field.key]: event.target.value,
+                                      },
+                                    })
+                                  }
+                                />
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {additionalKeys.length > 0 && (
+                          <p className="ua-config-service-description text-xs">
+                            Additional existing fields are preserved:{" "}
+                            {additionalKeys.join(", ")}.
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            );
-          })}
+                );
+              })}
+              <form
+                className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-end"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  addGroup();
+                }}
+              >
+                <label className="min-w-0 flex-1 text-sm font-medium">
+                  Release group name
+                  <input
+                    value={newName}
+                    onChange={(event) => setNewName(event.target.value)}
+                    placeholder="e.g. MyGroup"
+                    className="ua-config-input mt-1 w-full rounded-md border px-3 py-2"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  className="ua-config-service-action rounded-md border px-3 py-2 text-sm font-semibold"
+                >
+                  Add group
+                </button>
+              </form>
+              {error && renameTarget === null && (
+                <p role="alert" className="text-sm text-red-500">
+                  {error}
+                </p>
+              )}
+            </>
+          )}
         </div>
       )}
     </section>
@@ -4274,6 +5116,13 @@ function TorrentClientSettings({
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
               {group.items.map(renderField)}
             </div>
+            {group.id === "storage" && itemByKey.has("enable_search") && (
+              <p className="ua-config-service-description mt-3 text-xs leading-relaxed">
+                <span className="font-semibold">Enable Search:</span> Search
+                this client for an existing torrent that matches your files so
+                its hash can be reused, avoiding unnecessary rehashing.
+              </p>
+            )}
             {group.id === "storage" && hasQbitTorrentStorageWarning && (
               <p className="ua-config-service-description mt-3 text-xs leading-relaxed">
                 <span className="font-semibold">
@@ -4305,8 +5154,8 @@ function TorrentClientSettings({
                 <p>
                   <span className="font-semibold">Content Layout:</span>{" "}
                   Controls qBittorrent&apos;s content layout for every torrent
-                  added through this client, including regular uploads. Leave
-                  it as Original unless your save-path structure requires a
+                  added through this client, including regular uploads. Leave it
+                  as Original unless your save-path structure requires a
                   different layout.
                 </p>
               </div>
@@ -4378,9 +5227,15 @@ function TrackerSettings({
   torrentClients,
   overridesEnabled = false,
   onToggleOverrides = () => {},
+  pendingChanges,
   onValueChange,
 }) {
-  const editableItems = items || [];
+  const releaseGroupOverrides = (items || []).find(
+    (item) => item.key === "tag_overrides",
+  );
+  const editableItems = (items || []).filter(
+    (item) => item.key !== "tag_overrides",
+  );
   const itemByKey = new Map(editableItems.map((item) => [item.key, item]));
   const overrideItems = editableItems.filter((item) =>
     trackerDefaultOverrideKeys.has(item.key),
@@ -4498,23 +5353,56 @@ function TrackerSettings({
           <div className="ua-config-section-heading border-b px-4 py-2.5">
             <h3 className="text-sm font-semibold">{group.title}</h3>
           </div>
-          <div className="grid grid-cols-1 gap-4 p-4 md:grid-cols-2 xl:grid-cols-3">
-            {group.items.map((item) => (
-              <ConfigLeaf
-                key={item.key}
-                item={item}
-                pathParts={pathParts}
-                isDarkMode={isDarkMode}
-                fullWidth={true}
-                allImageHosts={allImageHosts}
-                usedImageHosts={usedImageHosts}
-                torrentClients={torrentClients}
-                onValueChange={onValueChange}
-              />
-            ))}
+          <div className="p-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {group.items.map((item) => (
+                <ConfigLeaf
+                  key={item.key}
+                  item={item}
+                  pathParts={pathParts}
+                  isDarkMode={isDarkMode}
+                  fullWidth={true}
+                  hideHelp={TRACKER_HELP_NOTE_KEYS.has(item.key)}
+                  allImageHosts={allImageHosts}
+                  usedImageHosts={usedImageHosts}
+                  torrentClients={torrentClients}
+                  onValueChange={onValueChange}
+                />
+              ))}
+            </div>
+            {group.items
+              .filter((item) => TRACKER_HELP_NOTE_KEYS.has(item.key))
+              .map((item) => {
+                const helpText = getConfigHelpText(item, pathParts);
+                return helpText ? (
+                  <p
+                    key={item.key}
+                    className="ua-config-service-description mt-3 whitespace-pre-wrap break-words text-xs leading-relaxed"
+                  >
+                    <span className="font-semibold">
+                      {formatConfigFieldLabel(item.key, pathParts)}:
+                    </span>{" "}
+                    {item.key === "announce_url"
+                      ? renderAnnounceUrlHelpText(helpText)
+                      : helpText}
+                  </p>
+                ) : null;
+              })}
           </div>
         </section>
       ))}
+      {releaseGroupOverrides && (
+        <ReleaseGroupOverrides
+          item={releaseGroupOverrides}
+          pathParts={pathParts}
+          pendingValue={
+            pendingChanges?.get(
+              [...pathParts, releaseGroupOverrides.key].join("/"),
+            )?.value
+          }
+          onValueChange={onValueChange}
+        />
+      )}
       {overrideItems.length > 0 && (
         <section className="ua-config-client-settings-group overflow-hidden rounded-lg border">
           <div className="ua-config-section-heading flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
@@ -4525,6 +5413,10 @@ function TrackerSettings({
               <p className="ua-config-service-description mt-1 text-xs">
                 Enable only when this tracker should use different description,
                 screenshot, or injection settings from DEFAULT.
+              </p>
+              <p className="ua-config-service-description mt-1 text-xs">
+                Matching release group overrides still take priority for
+                description text.
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-3">
@@ -4946,6 +5838,11 @@ function TrackerManager({
     const trackerStatusText = window.getUATrackerStatusText
       ? window.getUATrackerStatusText(trackerStatus)
       : "Not checked";
+    const visibleStatuses =
+      tracker.credential_source === "prowlarr" &&
+      !statuses.some((status) => status.label === "Prowlarr")
+        ? [...statuses, { label: "Prowlarr", tone: "accent" }]
+        : statuses;
     return (
       <span className="flex min-w-0 items-center gap-3">
         <span className="ua-config-tracker-icon flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border">
@@ -4977,9 +5874,9 @@ function TrackerManager({
                 title={trackerStatusText}
               />
             )}
-            {statuses.length > 0 && (
+            {visibleStatuses.length > 0 && (
               <span className="flex flex-wrap gap-1.5">
-                {statuses.map((status) =>
+                {visibleStatuses.map((status) =>
                   trackerStatusBadge(status.label, status.tone),
                 )}
               </span>
@@ -5640,6 +6537,7 @@ function TrackerManager({
                     allImageHosts={allImageHosts}
                     usedImageHosts={usedImageHosts}
                     torrentClients={torrentClients}
+                    pendingChanges={pendingChanges}
                     overridesEnabled={overridesEnabled}
                     onToggleOverrides={(enabled, overrideItems) =>
                       onToggleTrackerOverrides(name, enabled, overrideItems)
@@ -6051,6 +6949,8 @@ function ItemList({
   externalToolStatusError,
   isCheckingExternalTools,
   onCheckExternalTools,
+  onTestProwlarr,
+  prowlarrTestState,
   onBrowseFolder,
   onValueChange,
 }) {
@@ -6142,12 +7042,6 @@ function ItemList({
       "ffmpeg_warmup",
     ],
     "Screenshot Overlays": ["frame_overlay", "overlay_text_size"],
-    "Blu-ray & DVD": [
-      "use_largest_playlist",
-      "get_bluray_info",
-      "bluray_score",
-      "bluray_single_score",
-    ],
     Headers: [
       "custom_description_header",
       "tonemapped_header",
@@ -6258,6 +7152,21 @@ function ItemList({
 
   return (
     <div className="space-y-6">
+      {pathParts[0] === "DEFAULT" &&
+        regularItems.some((item) => item.key === "upload_order") && (
+          <p className="ua-config-service-description text-xs leading-relaxed">
+            For upload workflows and qBittorrent requirements, see the{" "}
+            <a
+              href="https://github.com/wastaken7/Upload-Assistant/blob/development/docs/upload-order-and-bandwidth-control.md"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="ua-config-service-action font-semibold hover:underline"
+            >
+              upload order and bandwidth control guide ↗
+            </a>
+            .
+          </p>
+        )}
       {isTorrentClientsRoot && (
         <React.Fragment>
           {clientSelectionItem && (
@@ -6479,6 +7388,11 @@ function ItemList({
           depth === 0 &&
           item.subsection === true &&
           normalizeConfigHeading(item.key) === "EXTERNAL TOOL PATHS";
+        const isProwlarrSubsection =
+          pathParts[0] === "DEFAULT" &&
+          depth === 0 &&
+          item.subsection === true &&
+          normalizeConfigHeading(item.key) === "PROWLARR CREDENTIAL FALLBACK";
         const isImageHostingSubsection =
           pathParts[0] === "DEFAULT" &&
           depth === 0 &&
@@ -6599,6 +7513,20 @@ function ItemList({
             <section className="ua-config-section overflow-hidden rounded-xl border">
               <div className="ua-config-section-heading border-b px-4 py-3">
                 <h2 className="text-sm font-semibold">{heading}</h2>
+                {heading === "General Description Settings" && (
+                  <p className="ua-config-service-description mt-1 text-xs leading-relaxed">
+                    Learn how these settings affect your descriptions in the{" "}
+                    <a
+                      href="https://github.com/wastaken7/Upload-Assistant/blob/development/docs/description-builder.md"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ua-config-service-action font-semibold hover:underline"
+                    >
+                      description builder guide ↗
+                    </a>
+                    .
+                  </p>
+                )}
               </div>
               <div className="ua-config-section-panel p-4">
                 <ItemList
@@ -6672,13 +7600,11 @@ function ItemList({
                 <ReleaseGroupOverrides
                   item={releaseGroupOverrides}
                   pathParts={pathParts}
-                  depth={depth}
-                  isDarkMode={isDarkMode}
-                  allImageHosts={allImageHosts}
-                  usedImageHosts={usedImageHosts}
-                  expandedGroups={expandedGroups}
-                  toggleGroup={toggleGroup}
-                  torrentClients={torrentClients}
+                  pendingValue={
+                    pendingChanges?.get(
+                      [...pathParts, releaseGroupOverrides.key].join("/"),
+                    )?.value
+                  }
                   onValueChange={onValueChange}
                 />
               )}
@@ -6756,6 +7682,18 @@ function ItemList({
                       {isCheckingExternalTools ? "Checking…" : "Check tools"}
                     </button>
                   )}
+                  {isProwlarrSubsection && (
+                    <button
+                      type="button"
+                      className="ua-config-service-action shrink-0 rounded-lg border px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={prowlarrTestState?.status === "loading"}
+                      onClick={onTestProwlarr}
+                    >
+                      {prowlarrTestState?.status === "loading"
+                        ? "Testing…"
+                        : "Test Connection"}
+                    </button>
+                  )}
                 </div>
                 {isExternalToolsSubsection && externalToolStatusError && (
                   <div
@@ -6786,6 +7724,19 @@ function ItemList({
                       </span>
                     </div>
                   )}
+                {isProwlarrSubsection && prowlarrTestState?.message && (
+                  <div
+                    className={
+                      "mt-3 rounded-lg border px-3 py-2 text-xs " +
+                      (prowlarrTestState.status === "success"
+                        ? "border-green-500/40 text-green-500"
+                        : "border-red-500/40 text-red-500")
+                    }
+                    role="status"
+                  >
+                    {prowlarrTestState.message}
+                  </div>
+                )}
               </div>
               <div className="ua-config-section-panel p-4">{nested}</div>
             </section>
@@ -8463,6 +9414,16 @@ function ConfigApp() {
   );
   const [expandedGroups, setExpandedGroups] = useState(new Set());
   const [pendingChanges, setPendingChanges] = useState(new Map());
+  const releaseGroupDrafts = useRef(new Map());
+
+  useEffect(() => {
+    const resetDrafts = (event) => {
+      releaseGroupDrafts.current.delete(String(event.detail?.pathKey || ""));
+    };
+    window.addEventListener(CONFIG_FIELD_RESET_EVENT, resetDrafts);
+    return () =>
+      window.removeEventListener(CONFIG_FIELD_RESET_EVENT, resetDrafts);
+  }, []);
   const [pendingTorrentClients, setPendingTorrentClients] = useState(new Map());
   const [pendingRemovedTorrentClients, setPendingRemovedTorrentClients] =
     useState(new Set());
@@ -8515,6 +9476,7 @@ function ConfigApp() {
   const [folderPicker, setFolderPicker] = useState(null);
   const [renameClientSource, setRenameClientSource] = useState("");
   const [clientTestStates, setClientTestStates] = useState(new Map());
+  const [prowlarrTestState, setProwlarrTestState] = useState(null);
   const [externalToolStatuses, setExternalToolStatuses] = useState({});
   const [externalToolStatusError, setExternalToolStatusError] = useState("");
   const [isCheckingExternalTools, setIsCheckingExternalTools] = useState(false);
@@ -8802,6 +9764,7 @@ function ConfigApp() {
         throw new Error(data.error || "Failed to load config options");
       }
       const newSections = data.sections || [];
+      releaseGroupDrafts.current.clear();
       const fallbackSection =
         newSections.find((section) => section.section === "DEFAULT") ||
         newSections[0];
@@ -8814,6 +9777,7 @@ function ConfigApp() {
       setPendingTrackerOverrideModes(new Map());
       setTrackerOverrideEditors(new Set());
       setClientTestStates(new Map());
+      setProwlarrTestState(null);
       setRenameClientSource("");
       setConfigWarning(data.config_warning || "");
       setStatus({ text: "", type: "info" });
@@ -8951,6 +9915,8 @@ function ConfigApp() {
     } else {
       setPendingChanges(new Map());
     }
+
+    releaseGroupDrafts.current.clear();
 
     fieldPathsToReset.forEach((pathKey) => {
       window.dispatchEvent(
@@ -9529,6 +10495,43 @@ function ConfigApp() {
           message: error.message || "Connection failed",
         });
         return next;
+      });
+    }
+  };
+
+  const testProwlarr = async () => {
+    const url = String(getEffectiveDefaultValue("prowlarr_url") || "").trim();
+    const apiKey = String(
+      getEffectiveDefaultValue("prowlarr_api_key") || "",
+    ).trim();
+    if (!url || !apiKey) {
+      setProwlarrTestState({
+        status: "error",
+        message: "Enter both the Prowlarr URL and API key.",
+      });
+      return;
+    }
+    setProwlarrTestState({
+      status: "loading",
+      message: "Testing connection…",
+    });
+    try {
+      const response = await apiFetch(`${API_BASE}/config_test_prowlarr`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, api_key: apiKey }),
+      });
+      const data = await response.json();
+      setProwlarrTestState({
+        status: data.success ? "success" : "error",
+        message: data.success
+          ? data.message || "Connection successful"
+          : data.error || "Connection failed",
+      });
+    } catch (error) {
+      setProwlarrTestState({
+        status: "error",
+        message: error.message || "Connection failed",
       });
     }
   };
@@ -10240,6 +11243,41 @@ function ConfigApp() {
       const path = Array.isArray(update.path) ? update.path : [];
       const key = String(path[path.length - 1] || "");
       const parentPath = path.slice(0, -1);
+      if (
+        key === "tag_overrides" &&
+        ((path[0] === "DEFAULT" && path.length === 2) ||
+          (path[0] === "TRACKERS" && path.length === 3))
+      ) {
+        const originalGroups = parseReleaseGroupOverrides(update.originalValue);
+        const nextGroups = parseReleaseGroupOverrides(update.value);
+        if (!originalGroups || !nextGroups)
+          return "Release group overrides changed";
+        const added = Object.keys(nextGroups).filter(
+          (name) => !Object.prototype.hasOwnProperty.call(originalGroups, name),
+        );
+        const removed = Object.keys(originalGroups).filter(
+          (name) => !Object.prototype.hasOwnProperty.call(nextGroups, name),
+        );
+        const updated = Object.keys(nextGroups).filter(
+          (name) =>
+            Object.prototype.hasOwnProperty.call(originalGroups, name) &&
+            serializeReleaseGroupOverrides({ [name]: originalGroups[name] }) !==
+              serializeReleaseGroupOverrides({ [name]: nextGroups[name] }),
+        );
+        return (
+          [
+            ["Added", added],
+            ["Removed", removed],
+            ["Updated", updated],
+          ]
+            .filter(([, names]) => names.length)
+            .map(
+              ([action, names]) =>
+                `${action} ${names.length === 1 ? "group" : "groups"} ${names.join(", ")}`,
+            )
+            .join("; ") || "Release group overrides changed"
+        );
+      }
       if (path[0] === "TRACKERS" && key === "default_trackers") {
         const normalizeTrackers = (value) =>
           String(value || "")
@@ -10377,6 +11415,12 @@ function ConfigApp() {
       ) {
         return "Sensitive value changed";
       }
+      if (path[0] === "DEFAULT" && key === "logo_language") {
+        const selectedLanguage = LOGO_LANGUAGE_OPTIONS.find(
+          (option) => option.value === update.value,
+        );
+        if (selectedLanguage) return `Set to ${selectedLanguage.label}`;
+      }
       if (update.value === "" || update.value === null) return "Set to empty";
       if (key === "tracker_description_mode") {
         const selectedMode = TRACKER_DESCRIPTION_MODE_OPTIONS.find(
@@ -10509,6 +11553,10 @@ function ConfigApp() {
       const detailParts = [
         `${settingCount} setting${settingCount === 1 ? "" : "s"} changed`,
       ];
+      const groupUpdate = pathKeys
+        .map((pathKey) => pendingChanges.get(pathKey))
+        .find((update) => update.path[2] === "tag_overrides");
+      if (groupUpdate) detailParts.push(describeValue(groupUpdate));
       if (overrideChange) {
         detailParts.push(
           `DEFAULT overrides ${overrideChange[1] ? "enabled" : "removed"}`,
@@ -10704,7 +11752,7 @@ function ConfigApp() {
     }
   };
 
-  return (
+  const configPage = (
     <div
       className={
         "ua-config-page min-h-screen " +
@@ -11056,6 +12104,8 @@ function ConfigApp() {
                           externalToolStatusError={externalToolStatusError}
                           isCheckingExternalTools={isCheckingExternalTools}
                           onCheckExternalTools={checkExternalTools}
+                          onTestProwlarr={testProwlarr}
+                          prowlarrTestState={prowlarrTestState}
                           onBrowseFolder={browseForFolder}
                           onValueChange={onValueChange}
                         />
@@ -11081,6 +12131,12 @@ function ConfigApp() {
         </div>
       </div>
     </div>
+  );
+
+  return (
+    <ReleaseGroupDraftContext.Provider value={releaseGroupDrafts}>
+      {configPage}
+    </ReleaseGroupDraftContext.Provider>
   );
 }
 

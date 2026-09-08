@@ -34,6 +34,7 @@ import psutil
 
 import web_ui.auth as auth_mod
 from src.webui_progress import PROGRESS_STDOUT_PREFIX
+from src.prompt_sound import PROMPT_SOUND_STDOUT_MARKER
 from src.app_paths import CODE_DIR, DATA_DIR, STATE_DIR
 from src.external_tools import EXTERNAL_TOOL_KEYS, check_external_tools
 from src.meta import Meta
@@ -1632,6 +1633,7 @@ def _webui_subprocess_env() -> dict[str, str]:
     env.pop("NO_COLOR", None)
     env["UA_WEBUI_FORCE_COLOR"] = "1"
     env["UA_WEBUI_PROGRESS_STDOUT"] = "1"
+    env["UA_WEBUI_PROMPT_SOUND_STDOUT"] = "1"
     return env
 
 
@@ -2303,6 +2305,7 @@ class ConfigItem(TypedDict, total=False):
     children: list[ConfigItem]
     help: list[str]
     subsection: str | bool
+    override_fields: list[ConfigItem]
 
 
 class ConfigSection(TypedDict, total=False):
@@ -2929,6 +2932,43 @@ def _remove_config_key_in_source(source: str, key_path: list[str]) -> str:
     return source  # Should not reach here
 
 
+_RELEASE_GROUP_OVERRIDE_FIELDS = (
+    "custom_description_header",
+    "screenshot_header",
+    "disc_menu_header",
+    "audio_spectrogram_header",
+    "dynamic_hdr_plot_header",
+    "tonemapped_header",
+    "custom_signature",
+)
+
+
+def _is_release_group_override_path(path: list[str]) -> bool:
+    """Identify the complete DEFAULT or tracker-specific release-group mapping."""
+    return path == ["DEFAULT", "tag_overrides"] or (
+        len(path) == 3 and path[0] == "TRACKERS" and path[2] == "tag_overrides"
+    )
+
+
+def _validate_release_group_overrides(value: object) -> None:
+    """Reject malformed maps and names that collide under description matching."""
+    if not isinstance(value, dict):
+        raise ValueError("Release group overrides must be a dictionary.")
+    seen: set[str] = set()
+    for name, fields in value.items():
+        if not isinstance(name, str) or not name.strip().lstrip("-") or any(ord(char) < 32 for char in name):
+            raise ValueError("Each release group needs a non-empty name without control characters.")
+        normalized_name = name.strip().lstrip("-").casefold()
+        if normalized_name in seen:
+            raise ValueError(f"Duplicate release group: {name}. Names are matched without case or leading hyphens.")
+        seen.add(normalized_name)
+        if not isinstance(fields, dict):
+            raise ValueError(f"Overrides for {name} must be a dictionary.")
+        for field, text in fields.items():
+            if not isinstance(field, str) or not field or (text is not None and not isinstance(text, str)):
+                raise ValueError(f"Overrides for {name} must contain text fields or null values.")
+
+
 def _build_config_items(
     example_section: dict[str, Any],
     user_section: dict[str, Any],
@@ -2942,6 +2982,8 @@ def _build_config_items(
     merged_keys: list[str] = [str(key) for key in example_section]
     if user_section:
         merged_keys.extend([str(key) for key in user_section if key not in example_section])
+    if len(path) == 2 and path[0] == "TRACKERS" and "tag_overrides" not in merged_keys:
+        merged_keys.append("tag_overrides")
 
     current_subsection: str | None = None
     subsection_items: list[ConfigItem] = []
@@ -2969,12 +3011,26 @@ def _build_config_items(
         if subsection_label != current_subsection:
             flush_subsection()
             current_subsection = subsection_label
-        if isinstance(example_value, Mapping) or isinstance(user_value, Mapping):
+        if _is_release_group_override_path(key_path):
+            # Example group names are documentation, not inherited user entries.
+            item: ConfigItem = {
+                "key": key,
+                "value": _json_safe(user_value if key in user_dict else {}),
+                "example_value": {},
+                "source": "config" if key in user_dict else "example",
+                "children": [],
+                "help": help_text or comments_map.get("DEFAULT/tag_overrides", []),
+                "override_fields": [
+                    {"key": field, "help": comments_map.get(f"DEFAULT/{field}", [])}
+                    for field in _RELEASE_GROUP_OVERRIDE_FIELDS
+                ],
+            }
+        elif isinstance(example_value, Mapping) or isinstance(user_value, Mapping):
             example_value = _as_dict(example_value) or {}
             user_value = _as_dict(user_value) or {}
             children = _build_config_items(example_value, user_value, comments_map, subsection_map, key_path)
             source: Literal["config", "example"] = "config" if key in user_dict else "example"
-            item: ConfigItem = {
+            item = {
                 "key": key,
                 "source": source,
                 "children": children,
@@ -4647,15 +4703,6 @@ def get_trackers():
     config_path = base_dir / "data" / "config.py"
     user_config = _load_config_from_file(config_path) or {}
 
-    trackers_section_raw = user_config.get("TRACKERS", {})
-    trackers_section = cast(dict[str, Any], trackers_section_raw) if isinstance(trackers_section_raw, Mapping) else {}
-    default_trackers_val = trackers_section.get("default_trackers", "")
-    default_trackers_list = []
-    if isinstance(default_trackers_val, str):
-        default_trackers_list = [t.strip().upper() for t in default_trackers_val.split(",") if t.strip()]
-    elif isinstance(default_trackers_val, list):
-        default_trackers_list = [str(t).strip().upper() for t in default_trackers_val if str(t).strip()]
-
     # Load tracker_class_map from src.trackersetup
     try:
         from src.trackersetup import tracker_class_map
@@ -4666,6 +4713,34 @@ def get_trackers():
     example_trackers_raw = example_config.get("TRACKERS", {})
     example_trackers = cast(dict[str, Any], example_trackers_raw) if isinstance(example_trackers_raw, Mapping) else {}
 
+    from src.prowlarr import ProwlarrError, apply_prowlarr_credentials, configured_prowlarr, fetch_prowlarr_credentials
+
+    prowlarr_sources: set[str] = set()
+    prowlarr_cookie_trackers: set[str] = set()
+    try:
+        if prowlarr_connection := configured_prowlarr(user_config):
+            prowlarr_report = fetch_prowlarr_credentials(
+                prowlarr_connection[0],
+                prowlarr_connection[1],
+                set(tracker_class_map),
+            )
+            prowlarr_sources = apply_prowlarr_credentials(user_config, prowlarr_report)
+            prowlarr_cookie_trackers = {name for name, credential in prowlarr_report.credentials.items() if credential.cookie}
+    except ProwlarrError:
+        # The tracker catalogue remains usable with local configuration when
+        # the optional Prowlarr instance is unavailable.
+        prowlarr_sources = set()
+        prowlarr_cookie_trackers = set()
+
+    trackers_section_raw = user_config.get("TRACKERS", {})
+    trackers_section = cast(dict[str, Any], trackers_section_raw) if isinstance(trackers_section_raw, Mapping) else {}
+    default_trackers_val = trackers_section.get("default_trackers", "")
+    default_trackers_list = []
+    if isinstance(default_trackers_val, str):
+        default_trackers_list = [t.strip().upper() for t in default_trackers_val.split(",") if t.strip()]
+    elif isinstance(default_trackers_val, list):
+        default_trackers_list = [str(t).strip().upper() for t in default_trackers_val if str(t).strip()]
+
     cookie_trackers: set[str] = set()
     try:
         from src.cookie_auth import find_cookie_file
@@ -4675,6 +4750,9 @@ def get_trackers():
         cookie_trackers = set()
     else:
         cookie_trackers = _configured_cookie_tracker_names(tracker_class_map, user_config, STATE_DIR, find_cookie_file)
+
+    prowlarr_sources -= cookie_trackers
+    cookie_trackers |= prowlarr_cookie_trackers
 
     configured_trackers = _configured_tracker_names(
         trackers_section,
@@ -4707,6 +4785,7 @@ def get_trackers():
                 "base_url": base_url,
                 "favicon": favicon_url,
                 "configured": tracker_name.upper() in configured_trackers,
+                "credential_source": ("prowlarr" if tracker_name.upper() in prowlarr_sources else "local" if tracker_name.upper() in configured_trackers else None),
                 "auth_type": auth_type,
                 "optional_setup_keys": optional_setup_keys,
                 "cookie_configured": tracker_name.upper() in cookie_trackers,
@@ -4718,6 +4797,49 @@ def get_trackers():
     trackers_data.sort(key=lambda x: x["display_name"].lower())
 
     return jsonify({"success": True, "default_trackers": default_trackers_list, "trackers": trackers_data})
+
+
+@app.route("/api/config_test_prowlarr", methods=["POST"])
+@limiter.limit("30 per hour", key_func=_rate_limit_key_func)
+def config_test_prowlarr():
+    """Test draft Prowlarr settings and return credential-free metadata."""
+    if not _is_authenticated():
+        return jsonify({"success": False, "error": "Authentication required (web session)"}), 401
+    if not _verify_csrf_header() or not _verify_same_origin():
+        return jsonify({"success": False, "error": "CSRF/Origin validation failed"}), 403
+
+    data = _request_json_dict()
+    base_url = str(data.get("url") or "").strip()
+    api_key = str(data.get("api_key") or "").strip()
+    if not base_url or not api_key:
+        return jsonify({"success": False, "error": "Prowlarr URL and API key are required"}), 400
+
+    from src.prowlarr import ProwlarrError, fetch_prowlarr_credentials
+    from src.trackersetup import tracker_class_map
+
+    try:
+        report = fetch_prowlarr_credentials(base_url, api_key, set(tracker_class_map), include_status=True)
+    except ProwlarrError as error:
+        return jsonify({"success": False, "error": str(error)}), 400
+    except Exception:
+        return jsonify({"success": False, "error": "Unable to test the Prowlarr connection"}), 500
+
+    api_key_trackers = sorted(name for name, credential in report.credentials.items() if credential.api_key)
+    cookie_trackers = sorted(name for name, credential in report.credentials.items() if credential.cookie)
+    return jsonify(
+        {
+            "success": True,
+            "message": f"Connected to Prowlarr {report.version or '(version unavailable)'}. Found credentials for {len(report.credentials)} supported tracker(s).",
+            "version": report.version,
+            "enabled_indexers": report.enabled_indexers,
+            "matched_indexers": report.matched_indexers,
+            "credential_trackers": sorted(report.credentials),
+            "api_key_trackers": api_key_trackers,
+            "cookie_trackers": cookie_trackers,
+            "masked_credentials": report.masked_credentials,
+            "unsupported_indexers": report.unsupported_indexers,
+        }
+    )
 
 
 @app.route("/api/config_set_tracker_overrides", methods=["POST"])
@@ -4839,13 +4961,14 @@ def config_update():
 
     # Special handling for WebUI-managed fields that don't exist in example config.
     key = path[-1] if path else ""
-    is_optional_arr_field = (
-        len(path) == 2
-        and path[0] == "DEFAULT"
-        and re.fullmatch(r"(?:sonarr|radarr)_(?:url|api_key)_[1-3]", key) is not None
-    )
+    is_optional_arr_field = len(path) == 2 and path[0] == "DEFAULT" and re.fullmatch(r"(?:sonarr|radarr)_(?:url|api_key)_[1-3]", key) is not None
     force_remove_optional_arr_field = is_optional_arr_field and data.get("remove") is True
-    if key in ["injecting_client_list", "searching_client_list"]:
+    is_release_group_override = _is_release_group_override_path(path)
+    if is_release_group_override:
+        if not isinstance(_get_nested_value(example_config, path[:-1]), Mapping):
+            return jsonify({"success": False, "error": "Unknown release group override scope"}), 400
+        example_value = {}
+    elif key in ["injecting_client_list", "searching_client_list"]:
         example_value = []  # Default to empty list
     elif is_optional_arr_field:
         example_value = ""
@@ -4853,15 +4976,17 @@ def config_update():
         return jsonify({"success": False, "error": "Path not found in example config"}), 400
 
     coerced_value = _coerce_config_value(raw_value, example_value)
+    if is_release_group_override:
+        try:
+            _validate_release_group_overrides(coerced_value)
+        except ValueError as error:
+            return jsonify({"success": False, "error": str(error)}), 400
     new_value_literal = _python_literal(coerced_value)
 
     # Keep optional WebUI-managed values out of config.py when they are unused.
     key = path[-1] if path else ""
-    should_remove_empty_value = (
-        key in ["injecting_client_list", "searching_client_list"] and coerced_value == []
-    ) or (
-        is_optional_arr_field
-        and (coerced_value == "" or force_remove_optional_arr_field)
+    should_remove_empty_value = (key in ["injecting_client_list", "searching_client_list"] and coerced_value == []) or (
+        is_optional_arr_field and (coerced_value == "" or force_remove_optional_arr_field)
     )
     if should_remove_empty_value:
         # Remove the key from config if it exists
@@ -6298,6 +6423,10 @@ def execute_command():
 
                             # Flush on newline or when buffer grows large
                             if _should_flush_subprocess_output(buffers[output_type], char):
+                                if buffers[output_type].strip() == PROMPT_SOUND_STDOUT_MARKER:
+                                    buffers[output_type] = ""
+                                    yield f"data: {json.dumps({'type': 'prompt_sound'})}\n\n"
+                                    continue
                                 if not prompt_type:
                                     _set_process_awaiting_input_if_current(session_id, process_state, False)
                                 chunk = buffers[output_type]
