@@ -538,7 +538,7 @@ config: dict[str, Any] = {
         #   BRASILTRACKER, BROADCASTHENET, CAPYBARABR, CATHODERAYTUBE, CINEMATIK, CINEMAZ, CURUPIRA, DARKPEERS, DESITORRENTS, DIGITALCORE,
         #   DREADVAULT, DRUNKENSLUG, EMUWAREZ, FILELIST, FLOOD, FUNFILE, GREATPOSTERWALL, HAWKEUNO, HDBITS, HDSPACE, HDTORRENTS, HOMIEHELPDESK,
         #   IMMORTALSEED, INFINITYHD, IPTORRENTS, ITATORRENTS, LAJIDUI, LASTDIGITALUNDERGROUND, LATTEAM, LEMONHD, LOCADORA, LONGPT, LST,
-        #   LUMINARR, MAKINGOFF, MIDNIGHTSCENE, MTEAM, NEBULANCE, NORDICQUALITY, NZBGEEK, OLDTOONSWORLD, ONLYENCODES, ORPHEUS, PASSTHEPOPCORN,
+        #   LUMINARR, MAKINGOFF, MIDNIGHTSCENE, MTEAM, NEBULANCE, NORDICQUALITY, NZBGEEK, NZBNEST, OLDTOONSWORLD, ONLYENCODES, ORPHEUS, PASSTHEPOPCORN,
         #   PEERGARDEN, POLISHTORRENT, PORTUGAS, PRIVATEHD, PTCAFE, PTERCLUB, PTFANS, PTGTK, PTSKIT, PTZONE, RACING4EVERYONE, RAILGUNPT,
         #   RASTASTUGAN, REELFLIX, RETROFLIX, RETROMOVIESCLUB, ROCKETHD, SAMARITANO, SEEDPOOL, SHAREISLAND, SKIPTHECOMMERCIALS, SPEEDAPP,
         #   SUIO, SWARMAZON, THELEACHZONE, THEOLDSCHOOL, TORRENTEROS, TORRENTHR, TORRENTLEECH, TOTHEGLORY, TVCHAOSUK, ULCX, UTOPIA,
@@ -1176,6 +1176,8 @@ config: dict[str, Any] = {
             # You can find your api key at Settings -> Security -> API Key -> Generate API Key
             "api_key": "",
             "anon": True,
+            # Force DigitalCore uploads to re-host screenshots on img.digitalcore.club using DEFAULT.sharex_api_key.
+            "force_rehost_images": False,
             # If True, the script will use the metadata-based title instead of the directory/file name.
             "use_metadata_name": False,
             # The configurations below override the DEFAULT configuration
@@ -2129,6 +2131,16 @@ config: dict[str, Any] = {
             "exact_match_only": False,
             "inject_delay": 0,
         },
+        "NZBNEST": {
+            # NzbNest API key
+            "api_key": "",
+            # Maximum number of API hits the script may make within 24 hours for duplicate search.
+            # Set to 0 to disable duplicate search via API.
+            "daily_api_hit_limit": 0,
+            # Only block uploads when the existing release exactly matches files.
+            "exact_match_only": False,
+            "inject_delay": 0,
+        },
         "OLDTOONSWORLD": {
             # Instead of using the tracker acronym for folder name when sym/hard linking, you can use a custom name
             "link_dir_name": "",
@@ -2823,6 +2835,7 @@ config: dict[str, Any] = {
             # "use_for_search": False, set to True if using this tracker for automatic ID searching or description parsing
             "use_for_search": False,
             "api_key": "",
+            "anon": True,
             # Only block uploads when the existing release exactly matches files and size.
             "exact_match_only": False,
             # For authorized users only. Do not change this unless you know what you are doing
@@ -3139,6 +3152,7 @@ config: dict[str, Any] = {
             # "use_for_search": False, set to True if using this tracker for automatic ID searching or description parsing
             "use_for_search": False,
             "api_key": "",
+            "anon": True,
             # For authorized users only. Do not change this unless you know what you are doing
             # Upload as featured
             "featured": False,
