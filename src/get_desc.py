@@ -1584,14 +1584,26 @@ class DescriptionBuilder:
 
         description_str: str = "\n".join(part for part in desc_parts if part.strip())
 
+        # UA Signature Personalizada
+        if ua_signature:
+            if not signature:
+                # Monta a assinatura base + imagem personalizada
+                signature = (
+                    f"\n\n[center][url=https://github.com/wastaken7/Upload-Assistant]Upload realizado via {meta.ua_name} {meta.current_version} (fork)[/url][/center]"
+                    "\n\n[center][img]https://i.postimg.cc/0jnWXGbm/012-Screens.png[/img][/center]"
+                )
+            ua_signature_section = signature
+        else:
+            ua_signature_section = ""
+
         if meta.debug:
             desc_file = f"{meta.base_dir}{'/' + 'tmp' + '/'}{meta.uuid}/[{self.tracker}]DESCRIPTION.txt"
             logger.debug(f"DEBUG: Saving final description to [yellow]{desc_file}[/yellow]")
             async with aiofiles.open(desc_file, "w", encoding="utf-8") as description_file:
-                await description_file.write(self.tracker_specific_formats(self.tracker, "\n".join(part for part in (description_str, ((signature or (f"[right][url=https://github.com/wastaken7/Upload-Assistant][size=4]{meta.ua_signature}[/size][/url][/right]" if meta.ua_signature else "")) if ua_signature else "")) if part.strip())))  # fmt: off
+                await description_file.write(self.tracker_specific_formats(self.tracker, "\n".join(part for part in (description_str, ua_signature_section) if part.strip())))  # fmt: off
 
         # fmt: off
-        return self.tracker_specific_formats(self.tracker, "\n".join(part for part in (description_str, ((signature or (f"[right][url=https://github.com/wastaken7/Upload-Assistant][size=4]{meta.ua_signature}[/size][/url][/right]" if meta.ua_signature else "")) if ua_signature else "")) if part.strip()))  # ci: ua_signature v4.2
+        return self.tracker_specific_formats(self.tracker, "\n".join(part for part in (description_str, ua_signature_section) if part.strip()))  # ci: ua_signature v4.2
         # fmt: on
 
     async def _check_saved_pack_image_links(self, meta: Meta, approved_image_hosts: list[str]) -> dict[str, Any]:
