@@ -36,6 +36,7 @@ import web_ui.auth as auth_mod
 from src.webui_progress import PROGRESS_STDOUT_PREFIX
 from src.prompt_sound import PROMPT_SOUND_STDOUT_MARKER
 from src.app_paths import CODE_DIR, DATA_DIR, STATE_DIR
+from src.args import cli_argument_catalog
 from src.external_tools import EXTERNAL_TOOL_KEYS, check_external_tools
 from src.meta import Meta
 from src.version import __version__
@@ -1648,6 +1649,7 @@ def _extract_preview_detail_sections(meta_data: Mapping[str, object], music: Map
                 ("translator", "Translator", meta_data.get("book_translator")),
                 ("series", "Series", series_display),
                 ("publisher", "Publisher", meta_data.get("publisher") or meta_data.get("book_publisher")),
+                ("service", "Service", meta_data.get("service_longname") or meta_data.get("service")),
                 ("language", "Language", meta_data.get("book_language")),
                 ("isbn", "ISBN", meta_data.get("isbn") or meta_data.get("book_isbn")),
                 ("asin", "ASIN", meta_data.get("asin") or meta_data.get("book_asin")),
@@ -2188,6 +2190,129 @@ def _music_preview_from_meta(meta_data: Mapping[str, object]) -> dict[str, objec
     }
 
 
+def _preview_media_track_value(track: Mapping[str, object], *keys: str) -> str:
+    """Return the first useful MediaInfo value across common key variants."""
+    for key in keys:
+        value = track.get(key)
+        text = _stringify_preview_value(value)
+        if text:
+            return text
+
+    folded = {str(key).casefold(): value for key, value in track.items()}
+    for key in keys:
+        value = folded.get(key.casefold())
+        text = _stringify_preview_value(value)
+        if text:
+            return text
+
+    return ""
+
+
+def _preview_track_flag(track: Mapping[str, object], *keys: str) -> bool:
+    value = _preview_media_track_value(track, *keys).strip().casefold()
+    return value in {"yes", "true", "1", "y"}
+
+
+def _extract_preview_media_tracks(
+    meta_data: Mapping[str, object],
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    """Extract display-safe audio and subtitle tracks from saved MediaInfo data."""
+    mediainfo = meta_data.get("mediainfo")
+    raw_tracks: list[Mapping[str, object]] = []
+
+    if isinstance(mediainfo, Mapping):
+        media = mediainfo.get("media")
+        if isinstance(media, Mapping):
+            tracks = media.get("track")
+            if isinstance(tracks, Sequence) and not isinstance(tracks, (str, bytes, bytearray)):
+                raw_tracks.extend(track for track in tracks if isinstance(track, Mapping))
+
+        if not raw_tracks:
+            for key in ("tracks", "track"):
+                tracks = mediainfo.get(key)
+                if isinstance(tracks, Sequence) and not isinstance(tracks, (str, bytes, bytearray)):
+                    raw_tracks.extend(track for track in tracks if isinstance(track, Mapping))
+                    if raw_tracks:
+                        break
+    elif isinstance(mediainfo, Sequence) and not isinstance(mediainfo, (str, bytes, bytearray)):
+        raw_tracks.extend(track for track in mediainfo if isinstance(track, Mapping))
+
+    audio_tracks: list[dict[str, object]] = []
+    subtitle_tracks: list[dict[str, object]] = []
+
+    for track in raw_tracks:
+        track_type = _preview_media_track_value(
+            track,
+            "@type",
+            "track_type",
+            "TrackType",
+            "type",
+        ).casefold()
+
+        if track_type == "audio":
+            target = audio_tracks
+        elif track_type in {"text", "subtitle", "subtitles"}:
+            target = subtitle_tracks
+        else:
+            continue
+
+        title = _preview_media_track_value(track, "Title", "title", "TrackTitle")
+        language = _preview_media_track_value(
+            track,
+            "Language_String",
+            "Language",
+            "language",
+            "Language_String1",
+        )
+        format_name = _preview_media_track_value(
+            track,
+            "Format_Commercial_IfAny",
+            "Format",
+            "format",
+            "CodecID",
+            "codec_id",
+            "codec",
+        )
+        channels = _preview_media_track_value(
+            track,
+            "ChannelLayout",
+            "ChannelLayout_Original",
+            "Channels",
+            "channels",
+            "Channel(s)",
+        )
+        bitrate = _preview_media_track_value(
+            track,
+            "BitRate_String",
+            "BitRate",
+            "bitrate",
+            "bit_rate",
+        )
+        if bitrate.isdigit():
+            bitrate = f"{round(int(bitrate) / 1000)} kbps"
+
+        service_kind = _preview_media_track_value(track, "ServiceKind", "service_kind")
+        hearing_impaired = _preview_track_flag(track, "HearingImpaired", "hearing_impaired")
+        commentary = "commentary" in title.casefold() or "commentary" in service_kind.casefold()
+
+        target.append(
+            {
+                "index": len(target) + 1,
+                "language": language,
+                "title": title,
+                "format": format_name,
+                "channels": channels,
+                "bitrate": bitrate,
+                "default": _preview_track_flag(track, "Default", "default"),
+                "forced": _preview_track_flag(track, "Forced", "forced"),
+                "hearing_impaired": hearing_impaired,
+                "commentary": commentary,
+            }
+        )
+
+    return audio_tracks, subtitle_tracks
+
+
 def _extract_execution_preview(meta_data: Mapping[str, object], fallback_path: str, preview_session_id: str = "") -> ExecutionPreview:
     title = _stringify_preview_value(meta_data.get("title")) or _stringify_preview_value(meta_data.get("name"))
     original_title = _stringify_preview_value(meta_data.get("original_title"))
@@ -2215,6 +2340,7 @@ def _extract_execution_preview(meta_data: Mapping[str, object], fallback_path: s
     if audiobook_bitrate.isdigit():
         audiobook_bitrate = f"{audiobook_bitrate} kbps"
     tv_pack_raw = _stringify_preview_value(meta_data.get("tv_pack")).lower()
+    audio_tracks, subtitle_tracks = _extract_preview_media_tracks(meta_data)
 
     return {
         "media_id": _stringify_preview_value(meta_data.get("uuid")) or fallback_path,
@@ -2236,7 +2362,9 @@ def _extract_execution_preview(meta_data: Mapping[str, object], fallback_path: s
         "name": _stringify_preview_value(meta_data.get("name")),
         "status": "ready",
         "audio": _stringify_preview_value(meta_data.get("audio")),
-        "service": _stringify_preview_value(meta_data.get("service_longname")),
+        "audio_tracks": audio_tracks,
+        "subtitle_tracks": subtitle_tracks,
+        "service": _stringify_preview_value(meta_data.get("service_longname") or meta_data.get("service")),
         "networks": networks,
         "season": _stringify_preview_value(meta_data.get("season")),
         "episode": _stringify_preview_value(meta_data.get("episode")),
@@ -2314,6 +2442,8 @@ def _find_execution_preview(session_id: str) -> ExecutionPreview | None:
         "name": "",
         "status": "waiting",
         "audio": "",
+        "audio_tracks": [],
+        "subtitle_tracks": [],
         "service": "",
         "networks": [],
         "season": "",
@@ -3753,6 +3883,7 @@ def index():
             "index.html",
             app_version=APP_VERSION,
             csrf_token=_ensure_csrf_token(),
+            cli_arguments=cli_argument_catalog(),
         )
     except Exception as e:
         console.print(f"Error loading template: {e}", markup=False)
@@ -6378,6 +6509,7 @@ def reset_execution_description():
 
 
 @app.route("/api/execution_screenshots/<screenshot_id>/image")
+@limiter.limit("7200 per hour", key_func=_rate_limit_key_func, override_defaults=True)
 def execution_screenshot_image(screenshot_id: str):
     """Serve one reviewed local screenshot after resolving it through its session."""
     session_id = str(request.args.get("session_id", "")).strip()

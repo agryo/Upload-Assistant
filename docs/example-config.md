@@ -116,6 +116,7 @@ Implementation notes:
 - `overlay_position` (str, default `"left"`): Place labels at the top-left (`"left"`) or top-right (`"right"`).
 - `overlay_layout` (str, default `"stacked"`): Use separate lines (`"stacked"`) or a compact row separated by bullets (`"single_line"`).
 - `scale_screenshots_for_par` (bool): When `False` (the default), preserve MediaInfo's coded dimensions. Set to `True` only to apply pixel-aspect-ratio correction for non-square-pixel sources; this can change a PNG from `1920x1040` to `1924x1040`.
+- `scale_dvd_screenshots_for_par` (bool): Apply PAR scaling to DVD screenshots and automatically captured DVD menus. Defaults to `True` for display-corrected dimensions; set to `False` to preserve coded dimensions. This setting is independent of `scale_screenshots_for_par`.
 
 See the [frame and screenshot overlay guide](screenshot-overlays.md) for help configuring **Frame Number, Frame Type, Timestamp and Tonemapped labels**. It includes images of stacked and single-line overlays, a copyable config example and guidance for existing configs.
 
@@ -177,6 +178,8 @@ These can be [overridden per-tracker](#tracker-overridable-settings) by adding t
 - `disc_menu_header` (str): BBCode header added above disc menu screenshots (discs only).
 - `audio_spectrogram_header` (str): BBCode header added above audio spectrograms.
 - `dynamic_hdr_plot_header` (str): BBCode header added above dynamic HDR metadata plots.
+- `image_tag_whitelist` (list[str]): Tracker-specific screenshot attributes required by this tracker. Every listed tag must be present; this setting is read from the tracker block and is not inherited from `DEFAULT`.
+- `image_tag_blacklist` (list[str]): Tracker-specific screenshot attributes rejected by this tracker. Any listed tag excludes the image; this setting is read from the tracker block and is not inherited from `DEFAULT`.
 - `tonemapped_header` (str): BBCode header added for tone-mapped releases.
 - `custom_signature` (str): BBCode signature appended at bottom of description.
 - `tag_overrides` (dict): Per-release-group overrides for these text fields. The

@@ -269,6 +269,9 @@ config: dict[str, Any] = {
         # Set to True only to convert non-square-pixel video to its display geometry.
         # This can change dimensions such as 1920x1040 to 1924x1040.
         "scale_screenshots_for_par": False,
+        # Apply PAR scaling to DVD screenshots and DVD menu captures by default.
+        # Set to False to keep their coded dimensions instead.
+        "scale_dvd_screenshots_for_par": True,
         # Maximum number of FFmpeg processes that can run at once.
         # The effective limit is the lower of this value and the number of screenshots.
         "process_limit": "4",
@@ -585,7 +588,7 @@ config: dict[str, Any] = {
             "use_for_search": False,
             "api_key": "",
             "anon": True,
-            # Send uploads to AITHER modq for staff approval
+            # Send uploads to the moderation queue for staff review and approval
             "modq": False,
             # For authorized users only. Do not change this unless you know what you are doing
             # Upload as featured
@@ -653,6 +656,8 @@ config: dict[str, Any] = {
             "announce_url": "",
             # Set this to True if you want to allow external subtitles to be included in the upload
             "allow_ext_subtitles": True,
+            # Send uploads to the moderation queue for staff review and approval
+            "modq": False,
             # The configurations below override the DEFAULT configuration
             "add_logo": True,
             "logo_size": "",
@@ -756,6 +761,8 @@ config: dict[str, Any] = {
             # If True, the script performs a basic rules compliance check (e.g., codecs, region).
             # This does not cover all tracker rules. Set to False to disable.
             "check_for_rules": True,
+            # AvistaZ does not allow frame overlays; use cached non-overlay images or recapture them.
+            "image_tag_blacklist": ["overlay"],
             # The configurations below override the DEFAULT configuration
             "thumbnail_size": "",
             "screens_per_row": "",
@@ -892,6 +899,8 @@ config: dict[str, Any] = {
             "use_for_search": False,
             "api_key": "",
             "anon": True,
+            # Send uploads to the moderation queue for staff review and approval
+            "modq": False,
             # For authorized users only. Do not change this unless you know what you are doing
             # Upload as featured
             "featured": False,
@@ -953,8 +962,8 @@ config: dict[str, Any] = {
         },
         "BROADCASTHENET": {
             # BTN accepts TV only. An API key is required for dupe searching and
-            # downloading BTN's registered torrent; upload authentication uses
-            # browser-exported cookies in data/cookies/BROADCASTHENET.txt.
+            # resolving uploads that return a group page. Upload authentication
+            # uses browser-exported cookies in data/cookies/BROADCASTHENET.txt.
             "link_dir_name": "",
             "use_for_search": False,
             "api_key": "",
@@ -972,7 +981,7 @@ config: dict[str, Any] = {
             "anon": True,
             # BiOMA Zipline API key/token for rehosting screenshots when uploading releases with tag 'BiOMA' (Host: https://img.thebioma.space/)
             "bioma_api_key": "",
-            # Send uploads to CAPYBARABR modq for staff approval
+            # Send uploads to the moderation queue for staff review and approval
             "modq": False,
             # Set this to True if you want to allow external subtitles to be included in the upload
             "allow_ext_subtitles": True,
@@ -1065,6 +1074,8 @@ config: dict[str, Any] = {
             # If True, the script performs a basic rules compliance check (e.g., codecs, region).
             # This does not cover all tracker rules. Set to False to disable.
             "check_for_rules": True,
+            # CinemaZ does not allow frame overlays.
+            "image_tag_blacklist": ["overlay"],
             # The configurations below override the DEFAULT configuration
             "thumbnail_size": "",
             "screens_per_row": "",
@@ -1094,7 +1105,7 @@ config: dict[str, Any] = {
             "use_for_search": False,
             "api_key": "",
             "anon": True,
-            # Send uploads to DARKPEERS modq for staff approval
+            # Send uploads to the moderation queue for staff review and approval
             "modq": False,
             # For authorized users only. Do not change this unless you know what you are doing
             # Upload as featured
@@ -1768,7 +1779,7 @@ config: dict[str, Any] = {
             "use_for_search": False,
             "api_key": "",
             "anon": True,
-            # Send uploads to LATTEAM modq for staff approval
+            # Send uploads to the moderation queue for staff review and approval
             "modq": False,
             # For authorized users only. Do not change this unless you know what you are doing
             # Upload as featured
@@ -1913,7 +1924,7 @@ config: dict[str, Any] = {
             "use_for_search": False,
             "api_key": "",
             "anon": True,
-            # Send uploads to LST modq for staff approval
+            # Send uploads to the moderation queue for staff review and approval
             "modq": False,
             # Send uploads to LST drafts
             "draft": False,
@@ -1957,7 +1968,7 @@ config: dict[str, Any] = {
             "use_for_search": False,
             "api_key": "",
             "anon": True,
-            # Send uploads to LUMINARR modq for staff approval
+            # Send uploads to the moderation queue for staff review and approval
             "modq": False,
             # For authorized users only. Do not change this unless you know what you are doing
             # Upload as featured
@@ -2011,7 +2022,7 @@ config: dict[str, Any] = {
             "use_for_search": False,
             "api_key": "",
             "anon": True,
-            # Send uploads to MIDNIGHTSCENE modq for staff approval
+            # Send uploads to the moderation queue for staff review and approval
             "modq": False,
             # For authorized users only. Do not change this unless you know what you are doing
             # Upload as featured
@@ -2147,7 +2158,7 @@ config: dict[str, Any] = {
             # "use_for_search": False, set to True if using this tracker for automatic ID searching or description parsing
             "use_for_search": False,
             "api_key": "",
-            # Send uploads to OLDTOONSWORLD modq for staff approval
+            # Send uploads to the moderation queue for staff review and approval
             "modq": False,
             "anon": True,
             # For authorized users only. Do not change this unless you know what you are doing
@@ -2254,7 +2265,7 @@ config: dict[str, Any] = {
             "anon": True,
             # Only block uploads when the existing release exactly matches files and size.
             "exact_match_only": True,
-            # Send uploads to PEERGARDEN modq for staff approval
+            # Send uploads to the moderation queue for staff review and approval
             "modq": False,
             # For authorized users only. Do not change this unless you know what you are doing
             # Upload as featured
@@ -2379,6 +2390,8 @@ config: dict[str, Any] = {
             # If True, the script performs a basic rules compliance check (e.g., codecs, region).
             # This does not cover all tracker rules. Set to False to disable.
             "check_for_rules": True,
+            # PrivateHD does not allow frame overlays.
+            "image_tag_blacklist": ["overlay"],
             # The configurations below override the DEFAULT configuration
             "thumbnail_size": "",
             "screens_per_row": "",
@@ -2744,7 +2757,7 @@ config: dict[str, Any] = {
             "use_for_search": False,
             "api_key": "",
             "anon": True,
-            # Send uploads to Retro Movies Club modq for staff approval
+            # Send uploads to the moderation queue for staff review and approval
             "modq": False,
             # For authorized users only. Do not change this unless you know what you are doing
             # Upload as featured
@@ -3113,7 +3126,7 @@ config: dict[str, Any] = {
             "use_for_search": False,
             "api_key": "",
             "anon": True,
-            # Send to modq for staff approval
+            # Send uploads to the moderation queue for staff review and approval
             "modq": False,
             # For authorized users only. Do not change this unless you know what you are doing
             # Upload as featured
@@ -3255,7 +3268,7 @@ config: dict[str, Any] = {
             "use_for_search": False,
             "api_key": "",
             "anon": True,
-            # Send to modq for staff approval
+            # Send uploads to the moderation queue for staff review and approval
             "modq": False,
             # For authorized users only. Do not change this unless you know what you are doing
             # Upload as featured
@@ -3409,6 +3422,8 @@ config: dict[str, Any] = {
             "use_for_search": False,
             "api_key": "",
             "anon": True,
+            # Send uploads to the moderation queue for staff review and approval
+            "modq": False,
             # For authorized users only. Do not change this unless you know what you are doing
             # Upload as featured
             "featured": False,
@@ -3614,10 +3629,18 @@ config: dict[str, Any] = {
         "par2_percentage": "10",
         # Obfuscate the subject line of the NNTP post to prevent DMCA takedowns
         "obscure_subject": True,
+        # Pesto only: "light" also keeps archive filenames opaque inside the
+        # NZB; "full" hides them on NNTP but restores readable names in the NZB.
+        # Existing configs without this key retain Pesto's previous "full" mode.
+        "pesto_obfuscation_mode": "light",
         # --- UPLOADER AND VERIFICATION ---
         # Uploader backend: "nyuu" (default) or "pesto"
         # pesto handles PAR2 and NZB password injection internally
         "usenet_uploader": "nyuu",
+        # pesto only: for TV season packs, upload each top-level episode as an
+        # independent release and also generate a consolidated season NZB.
+        # Every generated NZB is then submitted to the configured indexers.
+        "pesto_season_upload": False,
         # pesto only: a streaming STAT check that runs concurrently with the
         # upload, confirming each article shortly after it posts. Missing
         # articles are reposted and reverified automatically; the upload is
