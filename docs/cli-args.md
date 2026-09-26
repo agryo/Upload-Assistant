@@ -92,7 +92,7 @@ If you pass a `.txt` file as the main positional input path (without specifying 
 
 ### Category / type / source / resolution
 
-- `-c`, `--category {movie,tv,fanres,book,game,music,xxx}`: Override the category.
+- `-c`, `--category {movie,tv,sports,fanres,book,game,music,xxx}`: Override the category.
 - `-t`, `--type {disc,remux,encode,webdl,web-dl,webrip,hdtv,dvdrip}`: Override release type.
   - Stored as uppercase with `-` removed (e.g. `web-dl` → `WEBDL`).
 - `--source {Blu-ray,BluRay,DVD,DVD5,DVD9,HDDVD,WEB,HDTV,UHDTV,LaserDisc,DCP}`: Override the source string.
@@ -192,7 +192,7 @@ Thise will use the specified hash to get tracker ids from qBitTorrent or rTorren
 ## Upload selection / dupe / requests
 
 - `-tk`, `--trackers LIST`: Upload only to these trackers (instead of a default torrent list from config).
-  - Accepts comma-separated tracker identifiers (e.g. `--trackers blutopia,beyondhd`) and normalizes to uppercase.
+  - Accepts comma-separated canonical tracker names or per-tracker `cli_alias` values from config, case-insensitively (e.g. `--trackers CBR,beyondhd` selects `CAPYBARABR` and `BEYONDHD`).
 - `-rtk`, `--trackers-remove LIST`: Remove only these trackers when processing default trackers.
 - `-tpc`, `--trackers-pass N`: How many trackers must pass checks (dupe/banned-group/etc) for the uploading process to complete.
 - `-req`, `--search_requests`: Search for matching requests on supported trackers.

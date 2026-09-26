@@ -16,10 +16,11 @@ import re
 import sys
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit
 
 import langcodes
 
+from src.audible import fetch_audible_metadata, normalize_audible_domain, normalize_audible_url
 from src.book_extractors import (
     extract_audiobook_series_from_title as _extract_audiobook_series_from_title,
 )
@@ -41,6 +42,7 @@ from src.book_extractors import (
 from src.book_extractors import (
     get_epubmeta_output as _get_epubmeta_output,
 )
+from src.book_extractors import normalize_book_title_separators
 from src.book_extractors import (
     normalize_series_index as _normalize_series_index,
 )
@@ -537,6 +539,10 @@ async def gather_book_prep(
             if fname_index and not meta.book_series_index:
                 meta.book_series_index = fname_index
 
+    # Capture only a user-supplied or embedded ASIN. Later metadata providers may
+    # supply their own ASIN, which must not trigger an Audible lookup.
+    audible_asin = str(meta.asin or "").strip().upper() if meta.audiobook else ""
+
     # MyAnonamouse API search using torrent client comments (online lookup takes precedence)
     if not meta.torrent_comments and not meta.skip_auto_torrent and not meta.edit and config:
         from src.clients import Clients
@@ -720,11 +726,53 @@ async def gather_book_prep(
                     if key == "year" and "search_year" not in openlibrary_data:
                         meta.search_year = int(val)
 
+    audible_data: dict[str, Any] | None = None
+    if audible_asin:
+        try:
+            audible_domain = (
+                (urlsplit(normalize_audible_url(meta.audible_url)).hostname or "").removeprefix("www.")
+                if meta.audible_url
+                else normalize_audible_domain((config or {}).get("DEFAULT", {}).get("audible_domain", ""))
+            )
+        except ValueError:
+            audible_domain = ""
+        if audible_domain:
+            audible_data = await fetch_audible_metadata(audible_asin, audible_domain, base_dir)
+            if audible_data:
+                meta.asin = audible_asin
+                for key in ("title", "author", "narrator", "publisher", "overview", "isbn", "book_series", "book_series_index", "edition", "artwork_url"):
+                    value = audible_data.get(key)
+                    if not value:
+                        continue
+                    if key in ("title", "author", "narrator", "publisher", "overview", "isbn") and cli_overrides.get(key):
+                        continue
+                    if key == "edition" and meta.manual_edition:
+                        continue
+                    if key == "artwork_url" and meta.explicit_poster:
+                        continue
+                    if key == "book_series_index":
+                        value = _normalize_series_index(value)
+                    setattr(meta, key, value)
+                if audible_data.get("year") and not cli_overrides["year"]:
+                    meta.year = meta.search_year = audible_data["year"]
+                if audible_data.get("language") and not cli_overrides["book_language"]:
+                    full, iso = resolve_book_language(audible_data["language"])
+                    if is_valid_book_language(full, iso):
+                        meta.book_language, meta.book_language_iso = full, iso
+                meta.audible_rating_average = audible_data.get("rating_average")
+                meta.audible_rating_count = audible_data.get("rating_count")
+                if not cli_overrides["author"]:
+                    meta.audible_authors = audible_data.get("audible_authors", [])
+
     if meta.audiobook:
         filelist = meta.filelist
         total_duration, duration_formatted = await get_audiobook_duration(filelist)
         meta.audiobook_duration = total_duration
         meta.audiobook_duration_formatted = duration_formatted
+
+        if not total_duration and audible_asin and audible_data and (minutes := audible_data.get("runtime_minutes")):
+            meta.audiobook_duration = minutes * 60.0
+            meta.audiobook_duration_formatted = f"{minutes // 60:02d}h {minutes % 60:02d}m 00s"
 
         avg_bitrate = await get_audiobook_bitrate(filelist)
         if avg_bitrate is not None:
@@ -735,6 +783,7 @@ async def gather_book_prep(
 
     if meta.audiobook:
         meta.title = normalize_audiobook_title(meta.title, meta.book_series, meta.book_series_index)
+    meta.title = normalize_book_title_separators(meta.title)
 
     detect_newspaper(meta)
     sanitize_book_language(meta)

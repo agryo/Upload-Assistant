@@ -7,7 +7,8 @@ import os
 import sys
 from pathlib import Path
 
-from src.app_paths import LegacyConfigLocationError, ensure_legacy_config_absent
+from src.app_paths import CONFIG_PATH, LegacyConfigLocationError, bundled_example_config_path, ensure_legacy_config_absent, ensure_user_config
+from src.config_sync import ConfigSyncError, sync_user_config
 
 _entrypoint_name = Path(sys.argv[0]).stem.lower()
 _is_uploader_entrypoint = __name__ == "__main__" or _entrypoint_name == "ua"
@@ -35,6 +36,28 @@ if _is_uploader_entrypoint:
     except LegacyConfigLocationError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
+
+    _is_webui_arg = any((arg == "-webui" or arg == "--webui" or arg.startswith("-webui=") or arg.startswith("--webui=")) for arg in sys.argv)
+    try:
+        _config_created = ensure_user_config()
+    except OSError as exc:
+        print(f"Failed to create configuration file: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    if _config_created:
+        print(f"Configuration file created at: {CONFIG_PATH}")
+        if not _is_webui_arg:
+            print("Configure it before running an upload, then run the command again.")
+            sys.exit(1)
+    else:
+        try:
+            _config_sync_result = sync_user_config(CONFIG_PATH, bundled_example_config_path())
+        except (ConfigSyncError, OSError) as exc:
+            print(f"Warning: configuration was not automatically updated: {exc}", file=sys.stderr)
+        else:
+            if _config_sync_result.changed:
+                print(f"Configuration updated with {len(_config_sync_result.added_paths)} new setting(s).")
+                print(f"Previous configuration backed up to: {_config_sync_result.backup_path}")
 
 import ast
 import asyncio
@@ -83,6 +106,7 @@ from src.early_tasks import is_usenet_only as _is_usenet_only
 from src.get_desc import gen_desc
 from src.get_name import NameManager
 from src.get_tracker_data import TrackerDataManager
+from src.meta_file import write_meta_file
 from src.qbitwait import Wait
 from src.queuemanage import QueueManager
 from src.rehostimages import check_tracker_image_hosts
@@ -243,20 +267,6 @@ if Path(_defaults_data_dir).is_dir():
 
 _config_path = Path(_data_dir) / "config.py"
 
-# Detect -webui or --webui forms, including --webui=host:port
-_is_webui_arg = any((arg == "-webui" or arg == "--webui" or arg.startswith("-webui=") or arg.startswith("--webui=")) for arg in sys.argv)
-# Auto-create config.py from example on first WebUI start
-if _is_webui_arg and not Path(_config_path).exists():
-    _example_config_path = Path(_data_dir) / "example_config.py"
-    if Path(_example_config_path).exists():
-        logger.info("No config.py found. Creating default config from example_config.py...", extra={"markup": False})
-        try:
-            shutil.copy2(_example_config_path, _config_path)
-            logger.info("Default config created successfully!", extra={"markup": False})
-        except Exception as e:
-            logger.info(f"Failed to create default config: {e}", extra={"markup": False})
-            logger.info("Continuing without config file...", extra={"markup": False})
-
 from src.book_prep import sanitize_book_author, sanitize_book_language
 from src.meta import Meta
 from src.post_upload_hooks import run_post_upload_hooks
@@ -371,116 +381,6 @@ else:
     logger.info(f"{_RED}Please ensure the file is located at: {_YELLOW}{_config_path}{_RESET}", extra={"markup": False})
     logger.info(f"{_RED}Follow the setup instructions: https://github.com/wastaken7/Upload-Assistant{_RESET}", extra={"markup": False})
     sys.exit(1)
-
-
-async def merge_meta(meta: Meta, saved_meta: dict[str, Any]) -> dict[str, Any]:
-    """Merges saved metadata with the current meta, respecting overwrite rules."""
-    overwrite_list = [
-        "anon",
-        "asin",
-        "audible_url",
-        "audiobook_bitrate",
-        "audiobook_duration_formatted",
-        "audiobook_duration",
-        "author",
-        "book_asin",
-        "book_author",
-        "book_isbn",
-        "book_language_iso",
-        "book_language",
-        "book_publisher",
-        "book_title",
-        "category",
-        "client",
-        "comic",
-        "debug",
-        "desc",
-        "description_file",
-        "description_link",
-        "double_upload_until",
-        "doubleup",
-        "draft",
-        "dual_audio",
-        "dupe",
-        "exclusive",
-        "featured",
-        "freeleech",
-        "freeleech_until",
-        "game_region",
-        "game_subcategory",
-        "game_system",
-        "game_version",
-        "hardcoded_subs",
-        "igdb_manual",
-        "imdb",
-        "imghost",
-        "isbn",
-        "keywords",
-        "magazine",
-        "mal",
-        "manga",
-        "manual_edition",
-        "manual_episode",
-        "manual_platform",
-        "manual_season",
-        "manual_source",
-        "manual_type",
-        "manual_year",
-        "manual",
-        "modq",
-        "narrator",
-        "newspaper",
-        "no_aka",
-        "no_dub",
-        "no_season",
-        "no_seed",
-        "no_tag",
-        "no_year",
-        "nohash",
-        "openlibrary",
-        "personalrelease",
-        "platform",
-        "qbit_cat",
-        "qbit_tag",
-        "refundable",
-        "region",
-        "screens",
-        "skip_imghost_upload",
-        "steam_manual",
-        "sticky",
-        "title",
-        "tmdb_manual",
-        "torrent_creation",
-        "trackers",
-        "tvmaze_manual",
-        "type",
-        "unattended",
-        "webdv",
-        "year",
-    ]
-    sanitized_saved_meta: dict[str, Any] = {}
-    for key, value in saved_meta.items():
-        clean_key = key.strip().strip("'").strip('"')
-        if clean_key == "tracker_ids":
-            current_tracker_ids = meta.tracker_ids
-            sanitized_saved_meta[clean_key] = current_tracker_ids if current_tracker_ids else value
-        elif clean_key in overwrite_list:
-            meta_val = getattr(meta, clean_key, None)
-            if meta_val not in (None, False, 0, "", [], {}):
-                sanitized_saved_meta[clean_key] = meta_val
-                logger.debug(f"Overriding {clean_key} with meta value: {meta_val}")
-            else:
-                sanitized_saved_meta[clean_key] = value
-        else:
-            sanitized_saved_meta[clean_key] = value
-    tracker_ids = sanitized_saved_meta.pop("tracker_ids", None)
-    meta.update(sanitized_saved_meta)
-    if isinstance(tracker_ids, dict):
-        meta.set_tracker_ids(tracker_ids)
-        sanitized_saved_meta["tracker_ids"] = dict(meta.tracker_ids)
-    sanitize_book_language(meta)
-    sanitize_book_author(meta)
-    return sanitized_saved_meta
 
 
 async def print_progress(message: str, interval: int = 10) -> None:
@@ -1201,8 +1101,7 @@ async def process_meta(meta: Meta, base_dir: str) -> bool:
     meta.name_notag, meta.name, meta.clean_name, meta.potential_missing = await name_manager.get_name(meta)
 
     logger.debug(f"Trackers list before editing: {meta.trackers}")
-    async with aiofiles.open(f"{meta.base_dir}{'/' + 'tmp' + '/'}{meta.uuid}/meta.json", "w", encoding="utf-8") as f:
-        await f.write(json.dumps(meta.to_dict(), indent=4, cls=PathAwareEncoder))
+    await write_meta_file(meta)
     _publish_webui_preview_target(cast(str, meta.path or ""), meta.uuid or None)
 
     # For BOOK category, certain trackers (e.g. CAPYBARABR) require title, author, year and language.
@@ -1277,8 +1176,7 @@ async def process_meta(meta: Meta, base_dir: str) -> bool:
         meta = await prep.gather_prep(meta=meta, mode="cli")
         TrackerSetup(config=config).filter_unsupported_trackers(meta)
         meta.name_notag, meta.name, meta.clean_name, meta.potential_missing = await name_manager.get_name(meta)
-        async with aiofiles.open(f"{meta.base_dir}{'/' + 'tmp' + '/'}{meta.uuid}/meta.json", "w", encoding="utf-8") as f:
-            await f.write(json.dumps(meta.to_dict(), indent=4, cls=PathAwareEncoder))
+        await write_meta_file(meta)
         _publish_webui_preview_target(cast(str, meta.path or ""), meta.uuid or None)
         try:
             confirm = await helper.get_confirmation(meta)
@@ -1317,7 +1215,6 @@ async def process_meta(meta: Meta, base_dir: str) -> bool:
             "1PTBA",
             "ASIANCINEMA",
             "AITHER",
-            "AMIGOSSHARE",
             "BJSHARE",
             "BRASILTRACKER",
             "CAPYBARABR",
@@ -1353,8 +1250,7 @@ async def process_meta(meta: Meta, base_dir: str) -> bool:
                 status_dict["skip_upload"] = meta.unattended_audio_skip or meta.unattended_subtitle_skip
 
         await asyncio.sleep(0.2)
-        async with aiofiles.open(f"{meta.base_dir}{'/' + 'tmp' + '/'}{meta.uuid}/meta.json", "w", encoding="utf-8") as f:
-            await f.write(json.dumps(meta.to_dict(), indent=4, cls=PathAwareEncoder))
+        await write_meta_file(meta)
         _publish_webui_preview_target(cast(str, meta.path or ""), meta.uuid or None)
         await asyncio.sleep(0.2)
 
@@ -1952,8 +1848,7 @@ async def process_meta(meta: Meta, base_dir: str) -> bool:
                         except Exception as e:
                             logger.error(f"[red]Error uploading book cover: {e}[/red]")
 
-            async with aiofiles.open(f"{meta.base_dir}{'/' + 'tmp' + '/'}{meta.uuid}/meta.json", "w", encoding="utf-8") as f:
-                await f.write(json.dumps(meta.to_dict(), indent=4, cls=PathAwareEncoder))
+            await write_meta_file(meta)
             _publish_webui_preview_target(cast(str, meta.path or ""), meta.uuid or None)
 
             if "image_list" in meta and meta.image_list:
@@ -2040,8 +1935,7 @@ async def process_meta(meta: Meta, base_dir: str) -> bool:
     if meta.randomized >= 1 and not meta.mkbrr and not is_usenet_only:
         TORRENT_CREATOR.create_random_torrents(meta.base_dir, meta.uuid, meta.randomized, cast(str, meta.path))
 
-    async with aiofiles.open(f"{meta.base_dir}{'/' + 'tmp' + '/'}{meta.uuid}/meta.json", "w", encoding="utf-8") as f:
-        await f.write(json.dumps(meta.to_dict(), indent=4, cls=PathAwareEncoder))
+    await write_meta_file(meta)
     _publish_webui_preview_target(cast(str, meta.path or ""), meta.uuid or None)
     return True
 
@@ -2608,22 +2502,12 @@ async def do_the_thing(base_dir: str) -> None:
 
                 meta_file = Path(base_dir) / "tmp" / Path(path).name / "meta.json"
 
-                keep_meta = config["DEFAULT"].get("keep_meta", False)
-
-                if (not keep_meta or meta.delete_meta) and Path(meta_file).exists():
+                if meta.delete_meta and meta_file.exists():
                     try:
                         meta_file.unlink()
                         logger.debug(f"[bold yellow]Found and deleted existing metadata file: {meta_file}")
                     except Exception as e:
                         logger.info(f"[bold red]Failed to delete metadata file {meta_file}: {e!s}")
-
-                if keep_meta and Path(meta_file).exists():
-                    async with aiofiles.open(meta_file, encoding="utf-8") as f:
-                        content = await f.read()
-                        saved_meta = cast(dict[str, Any], json.loads(content)) if content.strip() else {}
-                        logger.info("[yellow]Existing metadata file found, it holds cached values")
-                        await merge_meta(meta, saved_meta)
-                        _publish_webui_preview_target(path, meta.uuid or None)
 
             except Exception as e:
                 logger.info(f"[red]Exception: '{path}': {e}")
@@ -2805,7 +2689,8 @@ async def do_the_thing(base_dir: str) -> None:
                                             episode_usenet_trackers,
                                             meta.usenet_pack_nzb_path,
                                         )
-                                        logger.info(f"[yellow]Processing {len(indexer_metas)} NZB upload(s) to Usenet indexers: {', '.join(selected_usenet_trackers)}.....")
+                                        if meta.tv_pack:
+                                            logger.info(f"[yellow]Processing {len(indexer_metas)} NZB upload(s) to Usenet indexers: {', '.join(selected_usenet_trackers)}.....")
                                         failed_episode_nzbs: dict[str, list[str]] = {tracker.upper(): [] for tracker in episode_usenet_trackers}
                                         uploaded_episode_counts: dict[str, int] = {tracker.upper(): 0 for tracker in episode_usenet_trackers}
                                         duplicate_episode_counts: dict[str, int] = {tracker.upper(): 0 for tracker in episode_usenet_trackers}
@@ -3051,8 +2936,7 @@ async def do_the_thing(base_dir: str) -> None:
 
             # Persist and expose the completed item before user-managed hooks run.
             # Hooks may inspect the final tracker status and files have not yet been cleaned.
-            async with aiofiles.open(f"{meta.base_dir}{'/' + 'tmp' + '/'}{meta.uuid}/meta.json", "w", encoding="utf-8") as f:
-                await f.write(json.dumps(meta.to_dict(), indent=4, cls=PathAwareEncoder))
+            await write_meta_file(meta)
             _publish_webui_preview_target(cast(str, meta.path or ""), meta.uuid or None)
             await run_post_upload_hooks(meta, config)
 
@@ -3374,15 +3258,6 @@ def run() -> None:
             logger.info("[green]Shutdown complete[/green]")
 
         sys.exit(0)
-
-
-def run_config_generator() -> None:
-    import runpy
-    import sys
-
-    script_path = Path(__file__).with_name("config-generator.py")
-    sys.argv[0] = str(script_path)
-    runpy.run_path(str(script_path), run_name="__main__")
 
 
 if __name__ == "__main__":

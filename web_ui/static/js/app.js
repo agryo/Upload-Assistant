@@ -709,18 +709,46 @@ let argumentCategories = [
         label: "--tracker-id",
         placeholder: "TRACKER=ID or URL",
       },
-      { label: "PTP reference", insert: "--tracker-id PTP=", description: "PTP torrent ID" },
-      { label: "BLU reference", insert: "--tracker-id BLU=", description: "BLU torrent ID" },
+      {
+        label: "PTP reference",
+        insert: "--tracker-id PTP=",
+        description: "PTP torrent ID",
+      },
+      {
+        label: "BLU reference",
+        insert: "--tracker-id BLU=",
+        description: "BLU torrent ID",
+      },
       {
         label: "Aither reference",
         insert: "--tracker-id AITHER=",
         description: "Aither torrent ID",
       },
-      { label: "LST reference", insert: "--tracker-id LST=", description: "LST torrent ID" },
-      { label: "OE reference", insert: "--tracker-id OE=", description: "OE torrent ID" },
-      { label: "HDB reference", insert: "--tracker-id HDB=", description: "HDB torrent ID" },
-      { label: "BTN reference", insert: "--tracker-id BTN=", description: "BTN torrent ID" },
-      { label: "BHD reference", insert: "--tracker-id BHD=", description: "BHD torrent ID" },
+      {
+        label: "LST reference",
+        insert: "--tracker-id LST=",
+        description: "LST torrent ID",
+      },
+      {
+        label: "OE reference",
+        insert: "--tracker-id OE=",
+        description: "OE torrent ID",
+      },
+      {
+        label: "HDB reference",
+        insert: "--tracker-id HDB=",
+        description: "HDB torrent ID",
+      },
+      {
+        label: "BTN reference",
+        insert: "--tracker-id BTN=",
+        description: "BTN torrent ID",
+      },
+      {
+        label: "BHD reference",
+        insert: "--tracker-id BHD=",
+        description: "BHD torrent ID",
+      },
       {
         label: "Orpheus reference",
         insert: "--tracker-id ORPHEUS=",
@@ -995,7 +1023,9 @@ if (cliArguments.length > 0) {
   argumentCategories = argumentCategories.map((category) => ({
     ...category,
     args: category.args
-      .filter((item) => !item.label.startsWith("--") || cliByLabel.has(item.label))
+      .filter(
+        (item) => !item.label.startsWith("--") || cliByLabel.has(item.label),
+      )
       .map((item) => {
         const cli = cliByLabel.get(item.label);
         if (!cli) return item; // WebUI command presets have their own instructions.
@@ -5886,6 +5916,7 @@ function AudionutsUAGUI() {
   const renderExecutionPreviewPanel = (compact = false) => {
     const media = executionPreview;
     const category = String(media?.category || "").toUpperCase();
+    const showTrackDetails = category === "MOVIE" || category === "TV";
     const baseTitle =
       media?.title ||
       media?.name ||
@@ -5959,11 +5990,7 @@ function AudionutsUAGUI() {
       return (
         <div
           key={`${kind}-${track.index}`}
-          className={`rounded-lg border px-3 py-2 ${
-            isDarkMode
-              ? "border-gray-700 bg-gray-900/60"
-              : "border-gray-200 bg-gray-50"
-          }`}
+          className="ua-processing-track rounded-lg border px-3 py-2"
         >
           <div className="flex items-start gap-2">
             <span className="ua-processing-muted shrink-0 font-mono text-xs">
@@ -6025,14 +6052,6 @@ function AudionutsUAGUI() {
                     className="ua-processing-poster max-h-full max-w-full object-contain"
                   />
                 </div>
-                <div
-                  className="ua-processing-live absolute left-3 top-3 inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.1em]"
-                  role="status"
-                  aria-live="polite"
-                >
-                  <span className="ua-processing-live-dot" aria-hidden="true" />
-                  Processing{category ? ` ${category}` : ""}
-                </div>
                 {category === "XXX" &&
                   String(media.poster_url).startsWith(
                     "/api/execution_preview_cover?",
@@ -6063,14 +6082,6 @@ function AudionutsUAGUI() {
               <div
                 className={`ua-processing-artwork relative flex w-full ${posterHeight} flex-col items-center justify-center gap-3`}
               >
-                <div
-                  className="ua-processing-live absolute left-3 top-3 inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.1em]"
-                  role="status"
-                  aria-live="polite"
-                >
-                  <span className="ua-processing-live-dot" aria-hidden="true" />
-                  Processing{category ? ` ${category}` : ""}
-                </div>
                 <span
                   className="ua-processing-placeholder-icon"
                   aria-hidden="true"
@@ -6184,15 +6195,15 @@ function AudionutsUAGUI() {
                 </section>
               )}
 
-              {media?.status !== "waiting" && (
+              {showTrackDetails && media?.status !== "waiting" && (
                 <section className="ua-processing-section">
                   <h4 className="ua-processing-section-title">Track Details</h4>
-                  <div className="space-y-2">
+                  <div className="ua-processing-track-controls space-y-2">
                     <button
                       type="button"
                       onClick={() => setShowAudioTracks((value) => !value)}
                       aria-pressed={showAudioTracks}
-                      className="flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left"
+                      className="ua-processing-track-toggle flex w-full items-center justify-between gap-3 rounded-lg py-2 text-left transition-colors"
                     >
                       <span>
                         <span className="block text-sm font-medium">
@@ -6224,7 +6235,7 @@ function AudionutsUAGUI() {
                       type="button"
                       onClick={() => setShowSubtitleTracks((value) => !value)}
                       aria-pressed={showSubtitleTracks}
-                      className="flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left"
+                      className="ua-processing-track-toggle flex w-full items-center justify-between gap-3 rounded-lg py-2 text-left transition-colors"
                     >
                       <span>
                         <span className="block text-sm font-medium">
@@ -6257,31 +6268,35 @@ function AudionutsUAGUI() {
                 </section>
               )}
 
-              {showAudioTracks && audioTracks.length > 0 && (
-                <section className="ua-processing-section">
-                  <h4 className="ua-processing-section-title">
-                    Audio Tracks ({audioTracks.length})
-                  </h4>
-                  <div className="space-y-2">
-                    {audioTracks.map((track) =>
-                      renderMediaTrack(track, "audio"),
-                    )}
-                  </div>
-                </section>
-              )}
+              {showTrackDetails &&
+                showAudioTracks &&
+                audioTracks.length > 0 && (
+                  <section className="ua-processing-section">
+                    <h4 className="ua-processing-section-title">
+                      Audio Tracks ({audioTracks.length})
+                    </h4>
+                    <div className="ua-processing-track-list space-y-2">
+                      {audioTracks.map((track) =>
+                        renderMediaTrack(track, "audio"),
+                      )}
+                    </div>
+                  </section>
+                )}
 
-              {showSubtitleTracks && subtitleTracks.length > 0 && (
-                <section className="ua-processing-section">
-                  <h4 className="ua-processing-section-title">
-                    Subtitle Tracks ({subtitleTracks.length})
-                  </h4>
-                  <div className="space-y-2">
-                    {subtitleTracks.map((track) =>
-                      renderMediaTrack(track, "subtitle"),
-                    )}
-                  </div>
-                </section>
-              )}
+              {showTrackDetails &&
+                showSubtitleTracks &&
+                subtitleTracks.length > 0 && (
+                  <section className="ua-processing-section">
+                    <h4 className="ua-processing-section-title">
+                      Subtitle Tracks ({subtitleTracks.length})
+                    </h4>
+                    <div className="ua-processing-track-list space-y-2">
+                      {subtitleTracks.map((track) =>
+                        renderMediaTrack(track, "subtitle"),
+                      )}
+                    </div>
+                  </section>
+                )}
 
               {renderedDetailSections}
 

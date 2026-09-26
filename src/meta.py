@@ -53,6 +53,9 @@ class Meta:
     dynamic_hdr_plot: bool | None = None
     audio: str = ""
     audible_url: str = ""
+    audible_authors: list[dict[str, str]] = field(default_factory=list)
+    audible_rating_average: float | None = None
+    audible_rating_count: int | None = None
     audiobook_bitrate: int | None = None
     audiobook_duration_formatted: str | None = None
     audiobook_duration: float | None = None
@@ -238,6 +241,7 @@ class Meta:
     image_list: list[dict[str, Any]] = field(default_factory=list)
     image_sizes: dict[str, Any] = field(default_factory=dict)
     imdb_id: int | None = None
+    tmdb_imdb_id: int = 0
     imdb_info: dict[str, Any] = field(default_factory=dict)
     imdb_manual: str | int | None = None
     imdb_mismatch: bool = False
@@ -331,6 +335,7 @@ class Meta:
     no_edition: bool = False
     no_ids: bool = False
     no_imdb: bool = False
+    automatic_imdb_rejected: bool = False
     no_override: bool = False
     no_season: bool = False
     no_seed: bool = False

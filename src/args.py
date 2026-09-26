@@ -180,7 +180,7 @@ Common options:
   -serv, --service           Streaming service
   --no-aka                   Remove AKA from title
   -daily, --daily            Air date of a daily type episode (YYYY-MM-DD)
-  -c, --category             Category (movie, tv, fanres, book, game, music, xxx)
+  -c, --category             Category (movie, tv, sports, fanres, book, game, music, xxx)
   -t, --type                 Type (disc, remux, encode, webdl, etc.)
   --source                   Source (Blu-ray, BluRay, DVD, WEBDL, etc.)
   -comps, --comparison       Use comparison images from a folder (input folder path): see -comps_index
@@ -234,6 +234,37 @@ class Args:
     def __init__(self, config: dict[str, Any]) -> None:
         self.config = config
 
+    def tracker_cli_aliases(self, parser: CustomArgumentParser) -> dict[str, str]:
+        """Resolve configured aliases only for -tk/--trackers input."""
+        from src.meta import Meta
+        from src.trackersetup import tracker_class_map
+
+        trackers = self.config.get("TRACKERS", {})
+        if not isinstance(trackers, Mapping):
+            return {}
+
+        canonical_names = set(tracker_class_map) | {"MANUAL", "USENET"}
+        aliases: dict[str, str] = {}
+        for name, options in trackers.items():
+            if not isinstance(options, Mapping):
+                continue
+            canonical = str(name).upper()
+            alias_value = options.get("cli_alias")
+            if not isinstance(alias_value, str) or not alias_value.strip():
+                continue
+            alias = alias_value.strip().upper()
+            if "," in alias or any(char.isspace() for char in alias):
+                parser.error(f"Invalid cli_alias for {canonical}: use one tracker identifier without spaces or commas")
+            if alias in canonical_names and alias != canonical:
+                parser.error(f"cli_alias {alias} for {canonical} conflicts with a canonical tracker name")
+            existing_target = Meta.canonical_tracker_name(alias)
+            if existing_target != alias and existing_target != canonical:
+                parser.error(f"cli_alias {alias} for {canonical} already selects {existing_target}")
+            if alias in aliases and aliases[alias] != canonical:
+                parser.error(f"cli_alias {alias} is configured for both {aliases[alias]} and {canonical}")
+            aliases[alias] = canonical
+        return aliases
+
     def parse(self, argv: Sequence[str], meta: Meta) -> tuple[Meta, CustomArgumentParser, list[str]]:
         input = list(argv)
         parser = CustomArgumentParser(
@@ -250,6 +281,7 @@ class Args:
             {
                 "movie": "Movie",
                 "tv": "TV Show",
+                "sports": "Sports Event",
                 "fanres": "Fan Restoration",
                 "book": "E-Book or Audiobook",
                 "game": "Video Game",
@@ -438,8 +470,8 @@ class Args:
             "--category",
             nargs=1,
             required=False,
-            help="Category [movie, tv, fanres, book, game, music, xxx]",
-            choices=["movie", "tv", "fanres", "book", "game", "music", "xxx"],
+            help="Category [movie, tv, sports, fanres, book, game, music, xxx]",
+            choices=["movie", "tv", "sports", "fanres", "book", "game", "music", "xxx"],
             dest="manual_category",
         )
         action_c.completer = category_completer
@@ -1272,6 +1304,7 @@ class Args:
                     meta[key] = value
             if key == "trackers":
                 if value:
+                    aliases = self.tracker_cli_aliases(parser)
                     # Extract from list if it's a single-item list (from nargs=1)
                     if isinstance(value, list):
                         value_list = value
@@ -1299,6 +1332,7 @@ class Args:
                         meta[key] = expanded
                     else:
                         meta[key] = [(str(tracker_value)).upper()]
+                    meta[key] = [aliases.get(name.strip(), name) for name in meta[key]]
                 else:
                     meta[key] = []
             else:
