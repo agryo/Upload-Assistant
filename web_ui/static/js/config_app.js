@@ -82,27 +82,10 @@ function loadQRCodeLib() {
   });
 }
 
-// Info icon component (similar to lucide-react Info icon)
-const InfoIcon = ({ className = "" }) => {
-  return React.createElement(
-    "svg",
-    {
-      xmlns: "http://www.w3.org/2000/svg",
-      width: "16",
-      height: "16",
-      viewBox: "0 0 24 24",
-      fill: "none",
-      stroke: "currentColor",
-      strokeWidth: "2",
-      strokeLinecap: "round",
-      strokeLinejoin: "round",
-      className: className,
-    },
-    React.createElement("circle", { cx: "12", cy: "12", r: "10" }),
-    React.createElement("path", { d: "M12 16v-4" }),
-    React.createElement("path", { d: "M12 8h.01" }),
-  );
-};
+const LucideIcon = window.UALucideIcon;
+const InfoIcon = ({ className = "" }) => (
+  <LucideIcon name="info" className={className} />
+);
 
 // Reflow wrapped config comments while retaining paragraphs, lists and URLs.
 const formatConfigHelpText = (lines) =>
@@ -143,6 +126,9 @@ const DESCRIPTION_HELP_OVERRIDES = {
 };
 
 const getConfigHelpText = (item, pathParts) => {
+  if (pathParts[0] === "TRACKERS" && item.key === "cli_alias") {
+    return "Optional, case-insensitive shorthand for -tk or --trackers. The full tracker code still works. Use a unique alias without spaces or commas.";
+  }
   if (
     ["DEFAULT", "TRACKERS"].includes(pathParts[0]) &&
     Object.hasOwn(DESCRIPTION_HELP_OVERRIDES, item.key)
@@ -162,7 +148,11 @@ const getConfigHelpText = (item, pathParts) => {
     : text;
 };
 
-const TRACKER_HELP_NOTE_KEYS = new Set(["announce_url", "link_dir_name"]);
+const TRACKER_HELP_NOTE_KEYS = new Set([
+  "announce_url",
+  "cli_alias",
+  "link_dir_name",
+]);
 
 const renderAnnounceUrlHelpText = (text) =>
   text.split(/(See:\s+https?:\/\/\S+)/i).map((part, index) => {
@@ -176,12 +166,12 @@ const renderAnnounceUrlHelpText = (text) =>
           href={href}
           target="_blank"
           rel="noopener noreferrer"
-          className="ua-config-service-action font-semibold hover:underline"
+          className="ua-config-service-action inline-flex items-center gap-1 font-semibold hover:underline"
         >
           {href.endsWith("#how-to-export-cookies")
             ? "How to export cookies"
             : href}{" "}
-          <span aria-hidden="true">↗</span>
+          <LucideIcon name="external-link" className="h-3 w-3" />
         </a>
       </span>
     );
@@ -343,84 +333,21 @@ const WorkspaceSwitcher = ({ activeWorkspace, isDarkMode, stretch }) => {
   );
 };
 
-const RailUploadIcon = () => (
-  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M12 16V4m0 0L7 9m5-5 5 5M5 20h14"
-    />
-  </svg>
-);
+const RailUploadIcon = () => <RailAssetIcon name="upload" />;
 
 const RailAssetIcon = ({ name }) => (
-  <span
-    aria-hidden="true"
-    className="inline-block h-5 w-5 flex-none"
-    style={{
-      backgroundColor: "currentColor",
-      mask: `url(/static/img/webui-icons/${name}.svg) center / contain no-repeat`,
-      WebkitMask: `url(/static/img/webui-icons/${name}.svg) center / contain no-repeat`,
-    }}
-  />
+  <LucideIcon name={name} className="h-5 w-5" />
 );
 
-const RailHelpIcon = () => (
-  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M12 6.75c-2.5-1.5-5.5-1.5-8-.5v11c2.5-1 5.5-1 8 .5m0-11c2.5-1.5 5.5-1.5 8-.5v11c-2.5-1-5.5-1-8 .5m0-11v11"
-    />
-  </svg>
-);
+const RailHelpIcon = () => <RailAssetIcon name="help" />;
 
-const RailUpdateIcon = () => (
-  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"
-    />
-  </svg>
-);
+const RailUpdateIcon = () => <LucideIcon name="download" className="h-5 w-5" />;
 
-const RailChangelogIcon = () => (
-  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-    <circle cx="12" cy="12" r="9" strokeWidth={2} />
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M12 7v5l3 2"
-    />
-  </svg>
-);
+const RailChangelogIcon = () => <RailAssetIcon name="changelog" />;
 
-const RailStatsIcon = () => (
-  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M4 19V9m6 10V5m6 14v-7m4 7H2"
-    />
-  </svg>
-);
+const RailStatsIcon = () => <RailAssetIcon name="stats" />;
 
-const RailLogoutIcon = () => (
-  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M10 17l5-5-5-5m5 5H3m10-8h5a2 2 0 012 2v12a2 2 0 01-2 2h-5"
-    />
-  </svg>
-);
+const RailLogoutIcon = () => <RailAssetIcon name="logout" />;
 
 function ConfigApplicationRail({
   trackers,
@@ -488,7 +415,7 @@ function ConfigApplicationRail({
           aria-current="page"
           onClick={(event) => event.preventDefault()}
         >
-          <RailAssetIcon name="settings" />
+          <RailAssetIcon name="config" />
           <span>Config</span>
         </a>
         <a href={`${APP_BASE}/stats`} className="ua-app-rail-button rounded-lg">
@@ -1223,6 +1150,7 @@ const formatConfigFieldLabel = (key, pathParts = []) => {
   }
   if (pathParts.includes("TRACKERS")) {
     const trackerFieldLabels = {
+      cli_alias: "CLI Alias",
       ApiUser: "API User",
       api_key: "API Key",
       api_url: "API URL",
@@ -1231,6 +1159,7 @@ const formatConfigFieldLabel = (key, pathParts = []) => {
       my_announce_url: "Personal Announce URL",
       bhd_rss_key: "BHD RSS Key",
       bioma_api_key: "Bioma API Key",
+      image_host_api_key: "Image Host API Key",
       ptgen_api: "PTGen API Key",
       use_for_search: "Use for Search",
       link_dir_name: "Link Directory Name",
@@ -2041,16 +1970,10 @@ function LogoLanguageSelect({ id, value, onChange }) {
             }
           }}
         >
-          <svg
+          <LucideIcon
+            name={isOpen ? "chevron-up" : "chevron-down"}
             className="h-4 w-4"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            aria-hidden="true"
-          >
-            <path d={isOpen ? "m6 15 6-6 6 6" : "m6 9 6 6 6-6"} />
-          </svg>
+          />
         </button>
       </div>
       {isOpen &&
@@ -2273,7 +2196,7 @@ function TagListEditor({
               removeEntry(entry);
             }}
           >
-            ×
+            <LucideIcon name="x" className="h-3 w-3" />
           </button>
         </span>
       ))}
@@ -2881,9 +2804,10 @@ function ConfigLeafEditor({
               href="https://www.bittorrent.org/beps/bep_0016.html"
               target="_blank"
               rel="noreferrer"
-              className="ua-config-service-action font-semibold hover:underline"
+              className="ua-config-service-action inline-flex items-center gap-1 font-semibold hover:underline"
             >
-              Learn more <span aria-hidden="true">↗</span>
+              Learn more
+              <LucideIcon name="external-link" className="h-3 w-3" />
             </a>
           </p>
         )}
@@ -3626,24 +3550,16 @@ function ConfigLeafEditor({
                       onClick={(e) => removeClient(client, e)}
                       className="ua-config-list-tag-remove inline-flex h-4 w-4 shrink-0 items-center justify-center rounded"
                     >
-                      ×
+                      <LucideIcon name="x" className="h-3 w-3" />
                     </button>
                   </span>
                 ))
               )}
             </div>
-            <svg
+            <LucideIcon
+              name="chevron-down"
               className={`ua-config-accordion-chevron h-4 w-4 shrink-0 transition-transform ${isOpen ? "rotate-180" : "rotate-0"}`}
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="m6 9 6 6 6-6"></path>
-            </svg>
+            />
           </div>
           {isOpen && (
             <div
@@ -3902,9 +3818,10 @@ function ConfigLeafEditor({
                 href={credentialHelp.href}
                 target="_blank"
                 rel="noreferrer"
-                className={`ua-config-service-action font-semibold hover:underline ${credentialHelp.linkOnNewLine ? "mt-0.5 block" : ""}`}
+                className={`ua-config-service-action items-center gap-1 font-semibold hover:underline ${credentialHelp.linkOnNewLine ? "mt-0.5 flex" : "inline-flex"}`}
               >
-                {credentialHelp.linkLabel} <span aria-hidden="true">↗</span>
+                {credentialHelp.linkLabel}
+                <LucideIcon name="external-link" className="h-3 w-3" />
               </a>
             </React.Fragment>
           )}
@@ -3982,18 +3899,7 @@ function MetadataCacheServices({
             }}
             aria-hidden="true"
           >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="m9 18 6-6-6-6"></path>
-            </svg>
+            <LucideIcon name="chevron-right" className="h-[18px] w-[18px]" />
           </span>
         </span>
       </button>
@@ -4293,25 +4199,19 @@ function ReleaseGroupOverrides({
                           })
                         }
                       >
-                        <svg
+                        <span
                           className="ua-config-accordion-chevron shrink-0 transition-transform"
                           style={{
                             transform: isGroupOpen
                               ? "rotate(90deg)"
                               : "rotate(0deg)",
                           }}
-                          width="18"
-                          height="18"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          aria-hidden="true"
                         >
-                          <path d="m9 18 6-6-6-6" />
-                        </svg>
+                          <LucideIcon
+                            name="chevron-right"
+                            className="h-[18px] w-[18px]"
+                          />
+                        </span>
                         <span className="min-w-0">
                           <span className="block break-words text-sm font-semibold">
                             {name}
@@ -4635,7 +4535,7 @@ function FolderPickerModal({ fieldLabel, onCancel, onSelect }) {
                   className="ua-config-folder-row flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left"
                   onClick={() => openFolder(item.path)}
                 >
-                  <span aria-hidden="true">📁</span>
+                  <LucideIcon name="folder" className="h-4 w-4" />
                   <span className="min-w-0">
                     <span className="block truncate text-sm font-medium">
                       {item.name}
@@ -4728,18 +4628,7 @@ function TorrentClientCreator({ templateItems, configuredNames, onAddClient }) {
           style={{ transform: isOpen ? "rotate(90deg)" : "rotate(0deg)" }}
           aria-hidden="true"
         >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="m9 18 6-6-6-6"></path>
-          </svg>
+          <LucideIcon name="chevron-right" className="h-[18px] w-[18px]" />
         </span>
       </button>
 
@@ -4966,19 +4855,7 @@ function HelpResourcesModal({
             data-ua-modal-initial-focus
             onClick={onClose}
           >
-            <svg
-              className="h-4 w-4"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              aria-hidden="true"
-            >
-              <path
-                d="M6 6l12 12M18 6L6 18"
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
-            </svg>
+            <LucideIcon name="x" className="h-4 w-4" />
           </button>
         </div>
 
@@ -5036,12 +4913,10 @@ function HelpResourcesModal({
                           {link.description}
                         </span>
                       </span>
-                      <span
-                        className="ua-config-service-action shrink-0 text-sm"
-                        aria-hidden="true"
-                      >
-                        ↗
-                      </span>
+                      <LucideIcon
+                        name="external-link"
+                        className="ua-config-service-action h-4 w-4 shrink-0"
+                      />
                     </a>
                   ))}
                 </div>
@@ -5055,9 +4930,10 @@ function HelpResourcesModal({
             href="https://github.com/wastaken7/Upload-Assistant/tree/development/docs"
             target="_blank"
             rel="noopener noreferrer"
-            className="ua-config-service-action rounded-lg border px-4 py-2 text-sm font-semibold"
+            className="ua-config-service-action inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold"
           >
-            Browse all documentation ↗
+            Browse all documentation
+            <LucideIcon name="external-link" className="h-4 w-4" />
           </a>
         </div>
       </section>
@@ -5414,26 +5290,7 @@ function ApiKeyExpiryStatus({
           onClick={check}
         >
           {checking && (
-            <svg
-              className="h-3 w-3 animate-spin"
-              viewBox="0 0 24 24"
-              fill="none"
-              aria-hidden="true"
-            >
-              <circle
-                cx="12"
-                cy="12"
-                r="9"
-                stroke="currentColor"
-                strokeWidth="3"
-                opacity="0.3"
-              />
-              <path
-                d="M12 3a9 9 0 0 1 9 9"
-                stroke="currentColor"
-                strokeWidth="3"
-              />
-            </svg>
+            <LucideIcon name="loader-circle" className="h-3 w-3 animate-spin" />
           )}
           {checking ? "Checking…" : "Check"}
         </button>,
@@ -5446,10 +5303,15 @@ function ApiKeyExpiryStatus({
             <span
               tabIndex={0}
               aria-label={details}
-              className="border-b border-dotted border-current"
+              className="inline-flex items-center gap-1 border-b border-dotted border-current"
             >
               {isDraft && "Draft · "}
-              {feedback && !feedback.error && "✓ Accepted · "}
+              {feedback && !feedback.error && (
+                <>
+                  <LucideIcon name="check" className="h-3 w-3" />
+                  Accepted ·
+                </>
+              )}
               {apiKeyExpiryLabel(expiry, true)}
             </span>
           </Tooltip>
@@ -5474,20 +5336,14 @@ function TrackerDefaultOverrides({
   const drafts = React.useContext(OverrideDraftContext);
   const defaults = React.useContext(TrackerDefaultValuesContext);
   const [isOpen, setIsOpen] = useState(false);
-  const fieldState = (item) => {
-    const path = [...pathParts, item.key];
-    const pathKey = path.join("/");
-    const pending = pendingChanges?.get(pathKey);
-    const stored = item.source === "config";
-    return {
-      path,
-      pathKey,
-      stored,
-      enabled: pending ? !pending.removeKey : stored,
-      value: pending && !pending.removeKey ? pending.value : item.value,
-      inherited: defaults[item.key] ?? item.example_value ?? "",
-    };
-  };
+  const { fieldState, updateField, coerceFieldValue, setFieldEnabled } =
+    window.UATrackerDefaultOverrides.createEditor({
+      pathParts,
+      defaults,
+      pendingChanges,
+      drafts: drafts.current,
+      onValueChange,
+    });
   const activeCount = items.filter((item) => fieldState(item).enabled).length;
   const groups = [
     {
@@ -5529,40 +5385,6 @@ function TrackerDefaultOverrides({
     },
   ];
   const itemByKey = new Map(items.map((item) => [item.key, item]));
-  const updateField = (item, value, removeKey = false) => {
-    const state = fieldState(item);
-    onValueChange(state.path, value, {
-      originalValue: state.stored ? item.value : undefined,
-      removeKey,
-      isSensitive: false,
-      isRedacted: false,
-      readOnly: false,
-    });
-  };
-  const coerceFieldValue = (item, value) => {
-    const valueType = typeof (item.example_value ?? item.value);
-    return valueType === "boolean"
-      ? value === true || value === "true" || value === "True"
-      : valueType === "number"
-        ? Number(value)
-        : value;
-  };
-  const setFieldEnabled = (item, enabled) => {
-    const state = fieldState(item);
-    if (state.enabled === enabled) return;
-    if (enabled) {
-      updateField(
-        item,
-        coerceFieldValue(
-          item,
-          drafts.current.get(state.pathKey) ?? state.inherited,
-        ),
-      );
-    } else {
-      drafts.current.set(state.pathKey, state.value);
-      updateField(item, state.stored ? item.value : undefined, state.stored);
-    }
-  };
 
   return (
     <section
@@ -5741,6 +5563,7 @@ function TrackerSettings({
         "ApiUser",
         "bhd_rss_key",
         "bioma_api_key",
+        "image_host_api_key",
         "ptgen_api",
         "base_url",
         "api_url",
@@ -5759,6 +5582,7 @@ function TrackerSettings({
         "doubleup",
         "sticky",
         "modq",
+        "force_rehost_images",
         "exclusive",
         "refundable",
         "draft",
@@ -5806,7 +5630,7 @@ function TrackerSettings({
     {
       id: "advanced",
       title: "Advanced",
-      keys: ["link_dir_name", "channel", "trackers"],
+      keys: ["cli_alias", "link_dir_name", "channel", "trackers"],
     },
   ];
   const groupedKeys = new Set(groupDefinitions.flatMap((group) => group.keys));
@@ -6142,6 +5966,15 @@ function TrackerManager({
     return String(
       pendingTrackerValues.get(name)?.get("api_key") ?? saved ?? "",
     ).trim();
+  };
+  const trackerCliAliases = (tracker) => {
+    const name = String(tracker.name).toUpperCase();
+    const saved = trackerItemByName
+      .get(name)
+      ?.children?.find((item) => item.key === "cli_alias")?.value;
+    // Keep the saved alias searchable while editing so its open card stays
+    // visible. After saving, the refreshed config supplies only the new alias.
+    return [saved, pendingTrackerValues.get(name)?.get("cli_alias")];
   };
   const trackerExpiry = (tracker) => {
     const name = String(tracker.name).toUpperCase();
@@ -6737,6 +6570,7 @@ function TrackerManager({
         [
           tracker.name,
           tracker.display_name,
+          ...trackerCliAliases(tracker),
           tracker.base_url,
           getTrackerCategories(tracker)
             .map((category) => category.label)
@@ -6839,7 +6673,7 @@ function TrackerManager({
               type="search"
               value={trackerQuery}
               onChange={(event) => setTrackerQuery(event.target.value)}
-              placeholder="Search by tracker name or acronym..."
+              placeholder="Search by tracker name, code or CLI alias..."
               className="ua-config-input w-full rounded-lg border px-3 py-2"
             />
           </div>
@@ -6900,18 +6734,10 @@ function TrackerManager({
                   }}
                   aria-hidden="true"
                 >
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="m9 18 6-6-6-6"></path>
-                  </svg>
+                  <LucideIcon
+                    name="chevron-right"
+                    className="h-[18px] w-[18px]"
+                  />
                 </span>
               </button>
               {trackerView === "configured" ? (
@@ -6984,12 +6810,17 @@ function TrackerManager({
                         {setupState.requirements.map((requirement) => (
                           <span
                             key={requirement.id}
-                            className="ua-config-tracker-requirement rounded-full border px-2.5 py-1 text-xs font-semibold"
+                            className="ua-config-tracker-requirement inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold"
                             data-complete={
                               requirement.complete ? "true" : "false"
                             }
                           >
-                            {requirement.complete ? "✓ " : "○ "}
+                            <LucideIcon
+                              name={
+                                requirement.complete ? "circle-check" : "circle"
+                              }
+                              className="h-3 w-3"
+                            />
                             {requirement.label}
                           </span>
                         ))}
@@ -7897,9 +7728,10 @@ function ItemList({
               href="https://github.com/wastaken7/Upload-Assistant/blob/development/docs/upload-order-and-bandwidth-control.md"
               target="_blank"
               rel="noopener noreferrer"
-              className="ua-config-service-action font-semibold hover:underline"
+              className="ua-config-service-action inline-flex items-center gap-1 font-semibold hover:underline"
             >
-              upload order and bandwidth control guide ↗
+              upload order and bandwidth control guide
+              <LucideIcon name="external-link" className="h-3 w-3" />
             </a>
             .
           </p>
@@ -8272,9 +8104,10 @@ function ItemList({
                       href="https://github.com/wastaken7/Upload-Assistant/blob/development/docs/description-builder.md"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="ua-config-service-action font-semibold hover:underline"
+                      className="ua-config-service-action inline-flex items-center gap-1 font-semibold hover:underline"
                     >
-                      description builder guide ↗
+                      description builder guide
+                      <LucideIcon name="external-link" className="h-3 w-3" />
                     </a>
                     .
                   </p>
@@ -8543,18 +8376,10 @@ function ItemList({
                   }}
                   aria-hidden="true"
                 >
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="m9 18 6-6-6-6"></path>
-                  </svg>
+                  <LucideIcon
+                    name="chevron-right"
+                    className="h-[18px] w-[18px]"
+                  />
                 </span>
               </button>
               {isOpen && (
@@ -9565,7 +9390,7 @@ function AccessLogTab({ isDarkMode }) {
                       className="ml-1 inline-flex h-5 w-5 items-center justify-center rounded text-red-500 hover:text-red-700"
                       aria-label={`Remove ${ip} from the whitelist`}
                     >
-                      ×
+                      <LucideIcon name="x" className="h-3 w-3" />
                     </button>
                   </span>
                 ))}
@@ -9614,7 +9439,7 @@ function AccessLogTab({ isDarkMode }) {
                       className="ml-1 inline-flex h-5 w-5 items-center justify-center rounded text-red-500 hover:text-red-700"
                       aria-label={`Remove ${ip} from the blacklist`}
                     >
-                      ×
+                      <LucideIcon name="x" className="h-3 w-3" />
                     </button>
                   </span>
                 ))}
@@ -9762,7 +9587,13 @@ function AccessLogTab({ isDarkMode }) {
                       <div
                         className={`text-xs ${entry.success ? "text-green-600" : "text-red-600"}`}
                       >
-                        {entry.status} {entry.success ? "✓" : "✗"}
+                        <span className="inline-flex items-center gap-1">
+                          {entry.status}
+                          <LucideIcon
+                            name={entry.success ? "circle-check" : "circle-x"}
+                            className="h-3 w-3"
+                          />
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -9935,7 +9766,7 @@ function ConfigSidebar({
           aria-label="Close configuration navigation"
           onClick={onClose}
         >
-          ×
+          <LucideIcon name="x" className="h-4 w-4" />
         </button>
       </div>
 
@@ -11615,7 +11446,7 @@ function ConfigApp() {
             body: JSON.stringify({ old_name: oldName, new_name: newName }),
           },
         );
-        const data = await response.json();
+        const data = await window.UAConfigSave.readResponse(response);
         if (!data.success) {
           throw new Error(data.error || "Failed to rename torrent client");
         }
@@ -11629,7 +11460,7 @@ function ConfigApp() {
             body: JSON.stringify({ name: clientName, template: templateName }),
           },
         );
-        const data = await response.json();
+        const data = await window.UAConfigSave.readResponse(response);
         if (!data.success && response.status !== 409) {
           throw new Error(data.error || "Failed to add torrent client");
         }
@@ -11671,35 +11502,16 @@ function ConfigApp() {
         }
       }
 
-      // Create missing subsections in the user's config (as empty dicts)
-      for (const createPath of toCreate) {
-        const respCreate = await apiFetch(`${API_BASE}/config_update`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path: createPath, value: "{}" }),
-        });
-        const dataCreate = await respCreate.json();
-        if (!dataCreate.success) {
-          throw new Error(dataCreate.error || "Failed to create subsection");
-        }
-      }
-
-      // Now save the actual pending updates
-      for (const update of pending) {
-        const response = await apiFetch(`${API_BASE}/config_update`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            path: update.path,
-            value: update.value,
-            remove: Boolean(update.removeKey),
-          }),
-        });
-        const data = await response.json();
-        if (!data.success) {
-          throw new Error(data.error || "Failed to save");
-        }
-      }
+      // Stage subsection creation and field edits together. One Save Config
+      // action uses one update request, regardless of the number of fields.
+      await window.UAConfigSave.saveUpdates(apiFetch, API_BASE, [
+        ...toCreate.map((path) => ({ path, value: "{}" })),
+        ...pending.map((update) => ({
+          path: update.path,
+          value: update.value,
+          remove: Boolean(update.removeKey),
+        })),
+      ]);
 
       for (const clientName of pendingRemovedTorrentClients) {
         const response = await apiFetch(
@@ -11712,7 +11524,7 @@ function ConfigApp() {
             }),
           },
         );
-        const data = await response.json();
+        const data = await window.UAConfigSave.readResponse(response);
         if (!data.success) {
           throw new Error(data.error || "Failed to remove torrent client");
         }
@@ -11728,7 +11540,7 @@ function ConfigApp() {
             }),
           },
         );
-        const data = await response.json();
+        const data = await window.UAConfigSave.readResponse(response);
         if (!data.success) {
           throw new Error(
             data.error || "Failed to remove tracker configuration",
@@ -11929,7 +11741,7 @@ function ConfigApp() {
       if (
         path[0] === "TRACKERS" &&
         trackerDefaultOverrideKeys.has(key) &&
-        update.removeKey
+        (update.removeKey || update.value === null)
       ) {
         return "Inherit from DEFAULT";
       }
@@ -12593,7 +12405,7 @@ function ConfigApp() {
                             onClick={() => setIsPendingSummaryOpen(false)}
                             aria-label="Close pending changes"
                           >
-                            ×
+                            <LucideIcon name="x" className="h-4 w-4" />
                           </button>
                         </div>
                         <div className="max-h-80 space-y-2 overflow-y-auto p-2">
