@@ -226,7 +226,7 @@ config: dict[str, Any] = {
         "prowlarr_api_key": "",
         # --- IMAGE HOSTING ---
         # Order of image hosts, with the primary host first and backups after it.
-        # Available image hosts: catbox, dalexni, imgbb, imgbox, lensdump, lostimg, midnightscene, onlyimage, passtheimage, pixhost, ptscreens, seedpool_cdn, sharex, utppm, zipline
+        # Available image hosts: catbox, dalexni, imgbb, imgbox, lensdump, lostimg, midnightscene, onlyimage, passtheimage, pixhost, ptscreens, seedpool_cdn, sharex, thrimg, utppm, zipline
         "img_host_1": "",
         "img_host_2": "",
         "img_host_3": "",
@@ -261,6 +261,7 @@ config: dict[str, Any] = {
         # ShareX-style image host (IMageHosting) token
         "sharex_url": "https://img.digitalcore.club/api/upload",
         "sharex_api_key": "",
+        "thrimg_api": "",
         # utp.pm API key
         "utppm_api": "",
         # Custom Zipline URL and API key
@@ -414,7 +415,7 @@ config: dict[str, Any] = {
         # Custom signature added to the bottom of the description.
         # Can be overridden per tracker by adding the same setting to its configuration.
         "custom_signature": "",
-        # Override description text fields for specific release groups. Tags are matched
+        # Override description presentation settings for specific release groups. Tags are matched
         # case-insensitively, with or without their leading hyphen.
         # Per-tracker tag_overrides take precedence over these DEFAULT overrides.
         "tag_overrides": {
@@ -427,6 +428,9 @@ config: dict[str, Any] = {
             #     "dynamic_hdr_plot_header": "[h2]MyAwesomeGroupTag Dynamic HDR Metadata[/h2]",
             #     "tonemapped_header": "[center]MyAwesomeGroupTag SDR reference screenshots[/center]",
             #     "custom_signature": "[center]MyAwesomeGroupTag signature[/center]",
+            #     "thumbnail_size": "400",
+            #     "screens_per_row": "3",
+            #     "episode_overview": False,
             # },
         },
         # --- BLU-RAY SETTINGS ---
