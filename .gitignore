@@ -54,3 +54,11 @@ user-args.json
 venv/*
 web_ui/static/js/node_modules/
 web_ui/static/img/trackers/suio.png
+
+# Bancos de dados SQLite
+*.sqlite3
+*.sqlite
+
+# Arquivos de estado/notificação da WebUI e atualização
+update_notification.json
+webui_changelog.json
