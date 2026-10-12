@@ -37,6 +37,13 @@ ENV_SESSION_SECRET_FILE = "SESSION_SECRET_FILE"  # noqa: S105
 
 
 def get_config_dir() -> Path:
+    # Check UA_DATA_DIR first - this is the portable/container override used by the CLI
+    ua_data_dir = os.environ.get("UA_DATA_DIR", "").strip()
+    if ua_data_dir:
+        webui_state = Path(ua_data_dir).expanduser() / "web_ui" / "state"
+        webui_state.mkdir(parents=True, exist_ok=True)
+        return webui_state
+
     # Detect container runtime: prefer repository `data/` when running in Docker
     def _running_in_docker() -> bool:
         # Allow explicit override via env var
@@ -63,41 +70,42 @@ def get_config_dir() -> Path:
     if _running_in_docker():
         if os.name == "nt":
             appdata = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
-            return Path(appdata) / "upload-assistant"
+            return Path(appdata) / "upload-assistant" / "web_ui" / "state"
         # Unix-like: prefer XDG_CONFIG_HOME if set, otherwise ~/.config
         xdg = os.environ.get("XDG_CONFIG_HOME")
         base = Path(xdg) if xdg else (Path.home() / ".config")
         # Defensive: if computed base is invalid/unwritable (e.g. Path.home() returns root
         # or the process lacks permissions), fall back to the repository data dir
         try:
-            (base / "upload-assistant").mkdir(parents=True, exist_ok=True)
-            return base / "upload-assistant"
+            p = base / "upload-assistant" / "web_ui" / "state"
+            p.mkdir(parents=True, exist_ok=True)
+            return p
         except Exception:
-            return repo_dir
+            return repo_dir / "web_ui" / "state"
 
     # Windows: prefer roaming AppData (per-user persistent config)
     if os.name == "nt":
         appdata = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
-        return Path(appdata) / "upload-assistant"
+        return Path(appdata) / "upload-assistant" / "web_ui" / "state"
     # Unix-like: prefer XDG_CONFIG_HOME, fall back to repo data/config or ~/.config/upload-assistant
     xdg = os.environ.get("XDG_CONFIG_HOME")
     if xdg:
         with contextlib.suppress(Exception):
-            p = Path(xdg) / "upload-assistant"
+            p = Path(xdg) / "upload-assistant" / "web_ui" / "state"
             p.mkdir(parents=True, exist_ok=True)
             return p
             # Fall through to repo/data or home-based fallback
     # fallback to repository data/config when available (developer mode)
     if repo_dir.exists():
-        return repo_dir
+        return repo_dir / "web_ui" / "state"
     # Final fallback: try to create ~/.config/upload-assistant, but if that
     # fails, fall back to repo_dir to avoid attempting to write to '/.config'.
     try:
-        home_cfg = Path.home() / ".config" / "upload-assistant"
+        home_cfg = Path.home() / ".config" / "upload-assistant" / "web_ui" / "state"
         home_cfg.mkdir(parents=True, exist_ok=True)
         return home_cfg
     except Exception:
-        return repo_dir
+        return repo_dir / "web_ui" / "state"
 
 
 _cached_session_secret: bytes | None = None
