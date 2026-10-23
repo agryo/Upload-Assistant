@@ -469,7 +469,7 @@ class TrackerSetup:
         if "taoe" in group_tags:
             group_tags = "taoe"
 
-        if tracker.upper() in ("AITHER", "CAPYBARABR", "LST", "LUMINARR", "SPEEDAPP", "ZENITH"):
+        if tracker.upper() in ("AITHER", "CAPYBARABR", "DARKPEERS", "INFINITYHD", "LST", "LUMINARR", "SPEEDAPP", "ZENITH"):
             file_path = await self.get_banned_groups(meta, tracker)
             if file_path == "empty":
                 logger.info(f"[bold red]No banned groups found for '{tracker}'.")
@@ -635,9 +635,11 @@ class TrackerSetup:
         return await self.check_tracker_claims(meta, tracker)
 
     async def check_tracker_claims(self, meta: Meta, tracker: str | list[str]) -> bool:
+        """Match releases against cached claims and retain identifying details for skipped results."""
         trackers = [tracker.strip().upper()] if isinstance(tracker, str) else [str(s).upper() for s in cast(list[Any], tracker)]
 
         async def process_single_tracker(tracker_name: str) -> bool:
+            """Compare this tracker's claim entries with the release's IDs, type and resolution."""
             try:
                 tracker_instance = self._create_tracker_instance(tracker_name)
                 if tracker_instance is None:
@@ -686,6 +688,9 @@ class TrackerSetup:
                         and all(res in api_resolutions for res in resolution_ids)
                         and all(typ in api_types for typ in type_ids)
                     ):
+                        meta.tracker_status.setdefault(tracker_name, {})["status_message"] = webui_events.plain_text(
+                            f"Claimed match found: {title}, Season: {season}, TMDB ID: {api_tmdb_id}", markup=False
+                        )
                         logger.info(f"[green]Claimed match found at [cyan]{tracker}: [yellow]{title}, Season: {season}, TMDB ID: {api_tmdb_id}[/green]")
                         return True
 
@@ -1401,7 +1406,13 @@ class TrackerSetup:
         else:
             if not meta.tv_pack:
                 try:
-                    user_message = cli_ui.ask_string("Enter a reason for the trump report on LST:")
+                    with webui_events.field_prompt(
+                        "Trump report",
+                        {"Tracker": tracker, "Report message": message, "Trumped torrent": f"https://lst.gg/torrents/{trumping_torrent_id}"},
+                        hint="Added to the report message. Leave it blank to send the report without it.",
+                        actions=[("", "Send without a reason")],
+                    ):
+                        user_message = cli_ui.ask_string("Enter a reason for the trump report on LST:")
                 except EOFError, KeyboardInterrupt:
                     logger.info("[yellow]Prompt cancelled; no additional message provided.[/yellow]")
                     user_message = None
