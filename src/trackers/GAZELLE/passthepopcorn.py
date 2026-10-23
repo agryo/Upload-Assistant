@@ -1,7 +1,6 @@
 # Upload Assistant © 2025 Audionut & wastaken7 — Licensed under UAPL v1.0
 import asyncio
 import contextlib
-import glob
 import io
 import json
 import platform
@@ -16,6 +15,7 @@ import click
 import httpx
 from rich.markup import escape
 
+from src import webui_events
 from src.bbcode import BBCODE
 from src.cogs.redaction import PathAwareEncoder, Redaction
 from src.console import logger, prompt_in_thread
@@ -27,7 +27,7 @@ from src.meta import Meta
 from src.rehostimages import ImageHostPolicy, RehostImagesManager
 from src.screenshot_manifest import files as manifest_files
 from src.takescreens import TakeScreensManager
-from src.temp_paths import artwork_dir, screenshots_dir
+from src.temp_paths import artwork_dir
 from src.torrent_policy import PASSTHEPOPCORN_POLICY
 from src.tracker_images import get_tracker_image_collection
 from src.trackers.common import Common
@@ -299,9 +299,11 @@ class PassThePopcorn:
             if not meta.skipit and not meta.unattended:
                 # Allow user to edit or discard the description
                 logger.info(f"{self.tracker}: [cyan]Do you want to edit, discard or keep the description?[/cyan]")
-                edit_choice = await prompt_in_thread(cli_ui.ask_string, "Enter 'e' to edit, 'd' to discard, or press Enter to keep it as is: ")
+                question, buttons = webui_events.letter_prompt([("e", "edit"), ("d", "discard")], "keep it as is")
+                with webui_events.answer_buttons(buttons):
+                    edit_choice = await prompt_in_thread(cli_ui.ask_string, question)
 
-                if (edit_choice or "").lower() == "e":
+                if (edit_choice or "").lower() == "e" and webui_events.editor_available():
                     edited_description = cast(str | None, click.edit(cast(Any, desc)))
                     if edited_description:
                         desc = edited_description.strip()
@@ -1161,13 +1163,13 @@ class PassThePopcorn:
                         else:
                             meta.retry_count += 1
                             meta[new_images_key] = []
-                            new_screens = [f.name for f in screenshots_dir(meta.base_dir, meta.uuid).glob(f"{glob.escape(meta.discs[i]['name'])}-*.png")]
+                            new_screens = [f.name for f in manifest_files(meta.base_dir, meta.uuid, f"FILE_{i}")]
                             if not new_screens:
                                 try:
                                     await self.takescreens_manager.dvd_screenshots(meta, i, multi_screens, True)
                                 except Exception as e:
                                     logger.info(f"{self.tracker}: Error during DVD screenshot capture: {e}", extra={"markup": False})
-                            new_screens = [f.name for f in screenshots_dir(meta.base_dir, meta.uuid).glob(f"{glob.escape(meta.discs[i]['name'])}-*.png")]
+                            new_screens = [f.name for f in manifest_files(meta.base_dir, meta.uuid, f"FILE_{i}")]
                             uploaded_images: list[dict[str, Any]] = []
                             if new_screens and not meta.skip_imghost_upload:
                                 uploaded_images, _ = await self.uploadscreens_manager.upload_screens(
