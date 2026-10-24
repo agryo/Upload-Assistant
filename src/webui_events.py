@@ -60,6 +60,8 @@ _prompt_context: contextvars.ContextVar[dict[str, Any] | None] = contextvars.Con
 _tracker_check: contextvars.ContextVar[_TrackerCheckMessages | None] = contextvars.ContextVar("ua_gui_tracker_check", default=None)
 _ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 _MARKUP_TAG = re.compile(r"\[/?[a-zA-Z#][^\[\]]*\]|\[/\]")
+# ISO 3166-1 alpha-2 code naming a bundled ``static/img/flags/<code>.svg``.
+_FLAG_CODE = re.compile(r"[a-z]{2}")
 
 
 def enabled() -> bool:
@@ -116,10 +118,28 @@ def _emit(kind: str, payload: Mapping[str, Any]) -> None:
 def begin_item(path: str, index: int, total: int) -> None:
     """Start a queue item; later events are tagged with its index."""
     global _current_item, _active_stage
-    _current_item = {"index": int(index), "total": int(total)}
+    _current_item = {"index": int(index), "total": int(total), "name": plain_text(Path(str(path)).name or path, 300)}
     _active_stage = None
     _started_stages.clear()
-    _emit("item", {"index": int(index), "total": int(total), "name": plain_text(Path(str(path)).name or path, 300)})
+    _emit("item", _current_item)
+
+
+def update_item(*, personal_release: bool | None = None, run_options: Mapping[str, Any] | None = None) -> None:
+    """Publish resolved release flags and bounded, non-secret run settings."""
+    global _current_item
+    if not enabled() or _current_item is None:
+        return
+    _current_item = dict(_current_item)
+    if personal_release is not None:
+        _current_item["personal_release"] = bool(personal_release)
+    if run_options is not None:
+        options: dict[str, Any] = {key: run_options.get(key) is True for key in ("debug", "no_seed", "skip_imghost_upload", "nohash", "ffdebug")}
+        options["client_disabled"] = run_options.get("client") == "none"
+        options["category"] = plain_text(run_options.get("category", ""), 20, markup=False)
+        base_dir, folder = run_options.get("base_dir"), run_options.get("uuid")
+        options["prep_directory"] = plain_text(Path(str(base_dir)) / "tmp" / str(folder), markup=False) if base_dir and folder else ""
+        _current_item["run_options"] = options
+    _emit("item", _current_item)
 
 
 def stage(key: str, status: StageStatus) -> None:
@@ -252,6 +272,7 @@ def numbered_options(
     start: int = 1,
     images: Iterable[str] = (),
     details: Iterable[Mapping[str, Any]] = (),
+    hint: str = "",
 ) -> Generator[None]:
     """Show the numbered list printed before a free-text prompt as answer buttons.
 
@@ -263,7 +284,9 @@ def numbered_options(
     thumbnail URLs, one per option ("" for none), such as posters.
     ``details`` are optional, one per option: ``meta`` (a short line such as
     IDs), ``text`` (a synopsis) and ``link``/``link_label`` (the entry on its
-    site, e.g. TMDb), shown under the option's label.
+    site, e.g. TMDb), shown under the option's label, and ``flag`` (a
+    lowercase ISO 3166-1 alpha-2 country code, shown as its flag). ``hint``
+    explains above the list why the question is asked.
     """
     thumbnails = [_http_link(image) if image else "" for image in images]
     context: dict[str, Any] = {"kind": "options", "options": list(options), "actions": list(actions), "start": str(int(start))}
@@ -275,11 +298,14 @@ def numbered_options(
             "text": plain_text(detail.get("text"), 400, markup=False),
             "link": _http_link(detail.get("link")) if detail.get("link") else "",
             "link_label": plain_text(detail.get("link_label"), 40, markup=False),
+            "flag": flag if _FLAG_CODE.fullmatch(flag := str(detail.get("flag") or "")) else "",
         }
         for detail in details
     ]
     if any(any(detail.values()) for detail in option_details):
         context["details"] = option_details
+    if hint:
+        context["hint"] = plain_text(hint, 600, markup=False)
     with prompt_context(**context):
         yield
 
