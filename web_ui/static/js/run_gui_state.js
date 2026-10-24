@@ -27,6 +27,7 @@
     awaiting: false,
     inputType: null,
     dupes: {},
+    dupeReviews: {},
     slots: {},
     trackers: {},
     requests: [],
@@ -112,6 +113,12 @@
         diffPct: Number.isFinite(entry.diff_pct) ? entry.diff_pct : null,
         color: hexColor(entry.color),
       }));
+  // A cover is a public image or the server's per-item endpoint, never a path.
+  const artworkUrl = (value) =>
+    typeof value === "string" &&
+    /^(https?:\/\/|\/api\/execution_item_cover\?)/i.test(value)
+      ? value
+      : "";
   const itemOf = (data, state) =>
     Number.isInteger(data.item) ? data.item : state.currentItem;
   const trackerKey = (item, tracker) => `${item}:${tracker}`;
@@ -169,6 +176,7 @@
           name: text(data.name),
           personalRelease: data.personal_release === true,
           runOptions: readRunOptions(data.run_options),
+          artwork: artworkUrl(data.artwork),
         });
         items.sort((a, b) => a.index - b.index);
         return { ...state, items, currentItem: data.index };
@@ -244,6 +252,36 @@
               entries: entries.length ? entries : previous?.entries || [],
               note: text(data.note) || previous?.note || "",
               trumpable: Boolean(data.trumpable),
+            },
+          },
+        };
+      }
+      case "dupe_review": {
+        const trackers = [
+          ...new Set(
+            (Array.isArray(data.trackers) ? data.trackers : [])
+              .map(text)
+              .filter(Boolean),
+          ),
+        ];
+        const started = [
+          ...new Set(
+            (Array.isArray(data.started) ? data.started : [])
+              .map(text)
+              .filter((tracker) => trackers.includes(tracker)),
+          ),
+        ];
+        return {
+          ...state,
+          dupeReviews: {
+            ...state.dupeReviews,
+            [item]: {
+              trackers,
+              started,
+              checking:
+                Number.isInteger(data.checking) && data.checking > 0
+                  ? data.checking
+                  : 0,
             },
           },
         };
@@ -501,6 +539,22 @@
         }
       });
 
+    const review =
+      state.prompt?.context?.kind === "dupes"
+        ? state.dupeReviews[state.prompt.item]
+        : null;
+    const reviewIndex = review
+      ? review.started.indexOf(state.prompt.context.tracker)
+      : -1;
+    const dupeReview =
+      reviewIndex >= 0
+        ? {
+            index: reviewIndex + 1,
+            total: review.trackers.length,
+            checking: review.checking,
+          }
+        : null;
+
     return {
       multipleItems,
       items: state.items,
@@ -510,6 +564,7 @@
       stages,
       hasStages: stages.some((stage) => stage.status),
       prompt: state.prompt,
+      dupeReview,
       lastConfirm: state.lastConfirm,
       awaiting: state.awaiting,
       inputType: state.inputType,

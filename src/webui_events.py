@@ -33,7 +33,7 @@ from typing import Any, Literal, cast
 GUI_EVENT_STDOUT_PREFIX = "UA_GUI_EVENT_JSON:"
 GUI_EVENTS_ENV = "UA_WEBUI_GUI_EVENTS"
 GUI_EVENT_NONCE_ENV = "UA_WEBUI_GUI_EVENT_NONCE"
-GUI_EVENT_KINDS = frozenset({"item", "stage", "notice", "notice_group", "prompt", "dupes", "slot", "tracker", "request"})
+GUI_EVENT_KINDS = frozenset({"item", "stage", "notice", "notice_group", "prompt", "dupes", "dupe_review", "slot", "tracker", "request"})
 STAGE_KEYS = ("prep", "confirm", "dupes", "screens", "torrent", "upload", "requests")
 STAGE_STATUSES = frozenset({"start", "done", "skip", "fail"})
 NOTICE_LEVELS = frozenset({"error", "warning", "attention"})
@@ -45,6 +45,9 @@ MAX_TEXT_LENGTH = 1000
 MAX_LIST_ITEMS = 500
 MAX_EVENT_BYTES = 262144
 MAX_CHECK_MESSAGES = 20
+# Local artwork the Web UI may serve as a queue item's cover thumbnail.
+ARTWORK_SUFFIXES = frozenset({".jpg", ".jpeg", ".png", ".webp"})
+TMDB_POSTER_BASE = "https://image.tmdb.org/t/p/w500"
 
 type StageStatus = Literal["start", "done", "skip", "fail"]
 type NoticeLevel = Literal["error", "warning", "attention"]
@@ -58,6 +61,7 @@ _active_stage: str | None = None
 _started_stages: set[str] = set()
 _prompt_context: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar("ua_gui_prompt_context", default=None)
 _tracker_check: contextvars.ContextVar[_TrackerCheckMessages | None] = contextvars.ContextVar("ua_gui_tracker_check", default=None)
+_dupe_review: contextvars.ContextVar[_DupeReviewProgress | None] = contextvars.ContextVar("ua_gui_dupe_review", default=None)
 _ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 _MARKUP_TAG = re.compile(r"\[/?[a-zA-Z#][^\[\]]*\]|\[/\]")
 # ISO 3166-1 alpha-2 code naming a bundled ``static/img/flags/<code>.svg``.
@@ -124,12 +128,41 @@ def begin_item(path: str, index: int, total: int) -> None:
     _emit("item", _current_item)
 
 
-def update_item(*, personal_release: bool | None = None, run_options: Mapping[str, Any] | None = None) -> None:
-    """Publish resolved release flags and bounded, non-secret run settings."""
+def _item_artwork(meta: Mapping[str, Any]) -> dict[str, str]:
+    """Return the release cover as a public URL or a local image file.
+
+    A local ``artwork_file`` is never shown to the browser: the server swaps
+    it for an authenticated URL before forwarding the event.
+    """
+    url = _http_link(meta.get("artwork_url")) if meta.get("artwork_url") else ""
+    if url:
+        return {"artwork": url}
+    artwork_path = str(meta.get("artwork_path") or "")
+    if artwork_path:
+        with contextlib.suppress(OSError, ValueError):
+            local = Path(artwork_path).resolve()
+            if local.suffix.casefold() in ARTWORK_SUFFIXES and local.is_file():
+                return {"artwork_file": str(local)}
+    tmdb_poster = str(meta.get("tmdb_poster_path") or "")
+    if tmdb_poster.startswith("/"):
+        return {"artwork": _http_link(f"{TMDB_POSTER_BASE}{tmdb_poster}")}
+    return {}
+
+
+def update_item(*, personal_release: bool | None = None, run_options: Mapping[str, Any] | None = None, artwork: Mapping[str, Any] | None = None) -> None:
+    """Publish resolved release flags, bounded run settings and the release cover."""
     global _current_item
     if not enabled() or _current_item is None:
         return
     _current_item = dict(_current_item)
+    if artwork is not None:
+        # Keep a cover already found when a later call no longer has one, e.g.
+        # after its temporary file was removed at the end of the item.
+        resolved = _item_artwork(artwork)
+        if resolved:
+            _current_item.pop("artwork", None)
+            _current_item.pop("artwork_file", None)
+            _current_item.update(resolved)
     if personal_release is not None:
         _current_item["personal_release"] = bool(personal_release)
     if run_options is not None:
@@ -262,6 +295,55 @@ def prompt_context(**context: Any) -> Generator[None]:
         yield
     finally:
         _prompt_context.reset(token)
+
+
+class _DupeReviewProgress:
+    """Keep discovery totals and actual review order local to one tracker batch."""
+
+    def __init__(self, trackers: Iterable[str]) -> None:
+        """Start discovery with every selected tracker unresolved."""
+        self.pending = set(trackers)
+        self.trackers: list[str] = []
+        self.started: list[str] = []
+        self.lock = Lock()
+
+    def update(self, tracker: str, *, needs_review: bool = False, opened: bool = False, finished: bool = False) -> None:
+        """Publish a changed total or first prompt while serializing worker updates."""
+        # Searches run on the event loop; prompts open in worker threads.
+        with self.lock:
+            before = (len(self.pending), tuple(self.trackers), tuple(self.started))
+            self.pending.discard(tracker)
+            if (needs_review or opened) and tracker not in self.trackers:
+                self.trackers.append(tracker)
+            if opened and tracker not in self.started:
+                self.started.append(tracker)
+            if finished and tracker not in self.started and tracker in self.trackers:
+                self.trackers.remove(tracker)
+            if before != (len(self.pending), tuple(self.trackers), tuple(self.started)):
+                _emit("dupe_review", {"trackers": self.trackers, "started": self.started, "checking": len(self.pending)})
+
+
+@contextlib.contextmanager
+def dupe_review_scope(trackers: Iterable[str]) -> Generator[None]:
+    """Share review discovery across this batch's concurrent tracker checks."""
+    if not enabled():
+        yield
+        return
+    names = [plain_text(name, 100, markup=False) for name in itertools.islice(trackers, MAX_LIST_ITEMS)]
+    progress = _DupeReviewProgress(names)
+    token = _dupe_review.set(progress)
+    try:
+        _emit("dupe_review", {"trackers": [], "started": [], "checking": len(progress.pending)})
+        yield
+    finally:
+        _dupe_review.reset(token)
+
+
+def dupe_review_ready(tracker: str, *, needs_review: bool = False, finished: bool = False) -> None:
+    """Record a resolved check, excluding trackers that need no manual review."""
+    progress = _dupe_review.get()
+    if enabled() and progress is not None:
+        progress.update(plain_text(tracker, 100, markup=False), needs_review=needs_review, finished=finished)
 
 
 @contextlib.contextmanager
@@ -423,6 +505,9 @@ def prompt_open(prompt_type: Literal["yes_no", "text", "choice", "multi_choice"]
     context = _context_payload()
     if context:
         payload["context"] = context
+        progress = _dupe_review.get()
+        if progress is not None and context.get("kind") == "dupes" and context.get("tracker"):
+            progress.update(str(context["tracker"]), opened=True)
     _emit("prompt", payload)
     return prompt_id
 
