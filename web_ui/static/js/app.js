@@ -676,6 +676,7 @@ const argumentSections = [
       { flag: "--tvmaze", placeholder: "ID" },
       { flag: "--mal", placeholder: "ID" },
       { flag: "--douban", placeholder: "ID" },
+      "--no-saved-ids",
       "--no-metadata-cache",
     ],
   },
@@ -1398,6 +1399,8 @@ const ChangelogIcon = () => <WebUiIcon name="changelog" />;
 
 const StatsIcon = () => <WebUiIcon name="stats" />;
 
+const HistoryIcon = () => <WebUiIcon name="history" />;
+
 const UploadRailIcon = () => <WebUiIcon name="upload" />;
 
 const LogoutIcon = () => <WebUiIcon name="logout" />;
@@ -1412,6 +1415,7 @@ const WorkspaceSwitcher = ({
     { id: "upload", label: "Upload", href: `${appBase}/` },
     { id: "config", label: "Configuration", href: `${appBase}/config` },
     { id: "stats", label: "Stats", href: `${appBase}/stats` },
+    { id: "history", label: "History", href: `${appBase}/history` },
   ];
 
   return (
@@ -1468,6 +1472,12 @@ const ApplicationRail = ({
       label: "Stats",
       href: `${appBase}/stats`,
       icon: <StatsIcon />,
+    },
+    {
+      id: "history",
+      label: "History",
+      href: `${appBase}/history`,
+      icon: <HistoryIcon />,
     },
   ];
 
@@ -3386,6 +3396,9 @@ function AudionutsUAGUI() {
   const isSendingInputRef = useRef(false);
   const activeTabIdRef = useRef("tab-1");
   const uploadTabCounterRef = useRef(1);
+  // Saved drafts that did not fit in the tab limit when the page loaded; kept
+  // in storage so a later load restores them once tabs are free.
+  const unrestoredDraftsRef = useRef([]);
   const tabRuntimeRef = useRef(null);
   if (tabRuntimeRef.current === null) {
     const firstTab = createUploadTabRuntime();
@@ -7035,6 +7048,12 @@ function AudionutsUAGUI() {
    * browser had prepared, so closing or reloading the page loses neither.
    */
   const restoreUploadSessions = async () => {
+    // History's "Upload again" hands over a release path for this page load.
+    // Take it before waiting for the server, and fill the first tab (the one
+    // shown now) right away, so later edits are kept and restoring sessions
+    // or drafts does not replace that tab.
+    const handoffPath = window.UAUploadHandoff?.take() || "";
+    if (handoffPath) handlePathInputChange(handoffPath);
     let sessions = [];
     try {
       const response = await apiFetch(`${API_BASE}/sessions`, {
@@ -7065,6 +7084,7 @@ function AudionutsUAGUI() {
 
     const firstTab = getTabRuntime("tab-1");
     const replaceFirstTab =
+      !handoffPath &&
       firstTab &&
       !firstTab.run.isExecuting &&
       !firstTab.sessionRecord &&
@@ -7099,13 +7119,13 @@ function AudionutsUAGUI() {
         String(session.label_detail || ""),
       );
     });
-    const restoredDrafts = drafts
-      .slice(0, room - restoredSessions.length)
-      .map((draft) => {
-        const runtime = createUploadTabRuntime();
-        runtime.view.form = { ...createUploadTabForm(), ...draft.form };
-        return newTab(runtime);
-      });
+    const draftRoom = Math.max(0, room - restoredSessions.length);
+    unrestoredDraftsRef.current = drafts.slice(draftRoom);
+    const restoredDrafts = drafts.slice(0, draftRoom).map((draft) => {
+      const runtime = createUploadTabRuntime();
+      runtime.view.form = { ...createUploadTabForm(), ...draft.form };
+      return newTab(runtime);
+    });
     const restored = [...restoredSessions, ...restoredDrafts];
 
     if (restored.length && replaceFirstTab) {
@@ -7151,7 +7171,7 @@ function AudionutsUAGUI() {
         },
       });
     });
-    saveUploadTabDrafts(drafts);
+    saveUploadTabDrafts([...drafts, ...unrestoredDraftsRef.current]);
   }, [
     uploadTabsRestored,
     uploadTabs,
