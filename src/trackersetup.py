@@ -156,6 +156,7 @@ STATIC_AUTH_TYPES: dict[str, str | None] = {
     "SAMARITANO": "unit3d_api",
     "SEEDPOOL": "unit3d_api",
     "SHAREISLAND": "unit3d_api",
+    "SIMURG": "other_api",
     "SKIPTHECOMMERCIALS": "unit3d_api",
     "SPEEDAPP": "other_api",
     "SUIO": "other_api",
@@ -492,29 +493,40 @@ class TrackerSetup:
         if "taoe" in group_tags:
             group_tags = "taoe"
 
-        if tracker.upper() in ("AITHER", "CAPYBARABR", "DARKPEERS", "INFINITYHD", "LST", "LUMINARR", "SPEEDAPP", "ZENITH"):
+        if tracker.upper() in ("AITHER", "CAPYBARABR", "DARKPEERS", "INFINITYHD", "LST", "LUMINARR", "SPEEDAPP", "ULCX", "ZENITH"):
             file_path = await self.get_banned_groups(meta, tracker)
             if file_path == "empty":
                 logger.info(f"[bold red]No banned groups found for '{tracker}'.")
                 return False
             if not file_path:
-                logger.info(f"[bold red]Failed to load banned groups for '{tracker}'.")
-                return False
+                if not banned_group_list:
+                    logger.info(f"[bold red]Failed to load banned groups for '{tracker}'.")
+                    return False
+                # Keep checking against the tracker's built-in list.
+                logger.info(f"[bold yellow]Failed to load banned groups for '{tracker}', using the built-in list.")
 
             # Load the banned groups from the file
             try:
-                content = await asyncio.to_thread(self._read_file, file_path)
-                data = json.loads(content)
-                banned_groups = data.get("banned_groups", "")
-                if banned_groups:
-                    banned_group_list = banned_groups.split(", ")
+                if file_path:
+                    content = await asyncio.to_thread(self._read_file, file_path)
+                    data = json.loads(content)
+                    raw_data = data.get("raw_data")
+                    # Keep the site's reason, when it sends one, to show it as the note.
+                    raw_items = [cast(JsonDict, item) for item in (cast(list[Any], raw_data) if isinstance(raw_data, list) else []) if isinstance(item, dict)]
+                    with_reasons = [[str(item["name"]), str(item.get("reason") or "")] for item in raw_items if item.get("name")]
+                    banned_groups = data.get("banned_groups", "")
+                    if with_reasons:
+                        banned_group_list = with_reasons
+                    elif banned_groups:
+                        banned_group_list = banned_groups.split(", ")
 
-            except FileNotFoundError:
-                logger.info(f"[bold red]Banned group file for '{tracker}' not found.")
-                return False
-            except json.JSONDecodeError:
-                logger.info(f"[bold red]Failed to parse banned group file for '{tracker}'.")
-                return False
+            except (FileNotFoundError, json.JSONDecodeError) as e:
+                problem = "not found" if isinstance(e, FileNotFoundError) else "could not be parsed"
+                if not banned_group_list:
+                    logger.info(f"[bold red]Banned group file for '{tracker}' {problem}.")
+                    return False
+                # The cache may not have been written: keep checking against the built-in list.
+                logger.info(f"[bold yellow]Banned group file for '{tracker}' {problem}, using the built-in list.")
 
         banned_note = ""
         for tag in banned_group_list:
@@ -525,7 +537,7 @@ class TrackerSetup:
                 tag_name = tag_list[0]
                 if group_tags == tag_name.lower():
                     logger.info(f"[bold yellow]{meta.tag[1:]}[/bold yellow][bold red] was found on [bold yellow]{tracker}'s[/bold yellow] list of banned groups.")
-                    if len(tag_list) > 1:
+                    if len(tag_list) > 1 and tag_list[1]:
                         banned_note = tag_list[1]
                         logger.info(f"[bold red]NOTE: [bold yellow]{tag_list[1]}")
                     result = True
@@ -1248,6 +1260,7 @@ tracker_class_map: Any = LazyTrackerDict(
         "SAMARITANO": ("src.trackers.UNIT3D.samaritano", "Samaritano"),
         "SEEDPOOL": ("src.trackers.UNIT3D.seedpool", "Seedpool"),
         "SHAREISLAND": ("src.trackers.UNIT3D.shareisland", "ShareIsland"),
+        "SIMURG": ("src.trackers.GAZELLE.simurg", "Simurg"),
         "SKIPTHECOMMERCIALS": ("src.trackers.UNIT3D.skipthecommercials", "SkipTheCommercials"),
         "SPEEDAPP": ("src.trackers.speedapp", "SpeedApp"),
         "SUIO": ("src.trackers.USENET.suio", "Suio"),

@@ -585,7 +585,7 @@ config: dict[str, Any] = {
         #   IMMORTALSEED, INFINITYHD, IPTORRENTS, ITATORRENTS, LAJIDUI, LASTDIGITALUNDERGROUND, LATTEAM, LEMONHD, LOCADORA, LONGPT, LST,
         #   LUMINARR, MAKINGOFF, MIDNIGHTSCENE, MTEAM, NEBULANCE, NORDICQUALITY, NZBGEEK, NZBNEST, OLDTOONSWORLD, ONLYENCODES, ORPHEUS, PASSTHEPOPCORN,
         #   PEERGARDEN, POLISHTORRENT, PORTUGAS, PRIVATEHD, PTCAFE, PTERCLUB, PTFANS, PTGTK, PTSKIT, PTZONE, QINGWA, RACING4EVERYONE, RAILGUNPT,
-        #   RASTASTUGAN, REELFLIX, RETROFLIX, RETROMOVIESCLUB, ROCKETHD, SAMARITANO, SEEDPOOL, SHAREISLAND, SKIPTHECOMMERCIALS, SPEEDAPP,
+        #   RASTASTUGAN, REELFLIX, RETROFLIX, RETROMOVIESCLUB, ROCKETHD, SAMARITANO, SEEDPOOL, SHAREISLAND, SIMURG, SKIPTHECOMMERCIALS, SPEEDAPP,
         #   SUIO, SWARMAZON, THELEACHZONE, THEOLDSCHOOL, TORRENTEROS, TORRENTHAVEN, TORRENTHR, TORRENTLEECH, TOTHEGLORY, TVCHAOSUK, ULCX, UTOPIA,
         #   VULTU, XINGYUNGEPT, YUSCENE, ZENITH, ZMPT
         # This list is validated against the tracker blocks below by the test suite.
@@ -1000,6 +1000,8 @@ config: dict[str, Any] = {
             "link_dir_name": "",
             "use_for_search": False,
             "api_key": "",
+            # Optional. When set, replaces the announce URL in the torrent downloaded from BTN
+            # after upload (e.g. https://landof.tv/<passkey>/announce). Leave empty to keep BTN's.
             "announce_url": "",
             # Optional override for BTN's JSON-RPC endpoint.
             "api_url": "https://api.broadcasthe.net/",
@@ -3108,6 +3110,15 @@ config: dict[str, Any] = {
             "add_audio_spectrogram": True,
             "inject_delay": 0,
         },
+        "SIMURG": {
+            "cli_alias": "SMG",
+            # Instead of using the tracker acronym for folder name when sym/hard linking, you can use a custom name
+            "link_dir_name": "",
+            # Simurg API token: Settings > API > API Keys. Do not commit a real token.
+            "api_key": "",
+            # Obtain from https://simurg.world/upload.php
+            "announce_url": "",
+        },
         "SKIPTHECOMMERCIALS": {
             "cli_alias": "STC",
             # Instead of using the tracker acronym for folder name when sym/hard linking, you can use a custom name
@@ -3656,6 +3667,7 @@ config: dict[str, Any] = {
             "screens_per_row": "",
             "episode_overview": True,
             "tonemapped_header": "[note]Screenshots have been adapted for SDR viewing, for reference only.[/note]",
+            # Ignored: Zenith does not allow extra screenshots for each episode or disc in packs.
             "multiScreens": "",
             "pack_thumb_size": "",
             "charLimit": "",
