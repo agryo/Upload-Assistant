@@ -1744,6 +1744,7 @@ class DescriptionBuilder:
         custom_header: bool = True,
         custom_signature: bool = True,
         description: bool = True,
+        disc_bdinfo: bool = True,  # BDInfo spoilers of later discs in a multi-disc pack
         game: bool = True,
         languages: bool = True,
         logo: bool = True,
@@ -2010,7 +2011,7 @@ class DescriptionBuilder:
         audio_spectrogram_section = await self.get_audio_spectrogram_section(meta) if audio_spectrogram else ""
         dynamic_hdr_plot_section = await self.get_dynamic_hdr_plot_section(meta) if dynamic_hdr_plot else ""
 
-        discs_and_screenshots = await self._handle_discs_and_screenshots(meta, approved_hosts, images, multi_screens) if screenshots else ""
+        discs_and_screenshots = await self._handle_discs_and_screenshots(meta, approved_hosts, images, multi_screens, disc_bdinfo=disc_bdinfo) if screenshots else ""
         if self._get_bool_config("hide_screenshot_header_if_only_section", True, meta):
             image_sections = [
                 (menu_section, await self.menu_screenshot_header(meta) if menu_section else ""),
@@ -2148,7 +2149,11 @@ class DescriptionBuilder:
             ]
         return []
 
-    def _append_disc_mediainfo(self, desc_parts: list[str], disc: dict[str, Any]) -> None:
+    def _append_disc_mediainfo(self, desc_parts: list[str], disc: dict[str, Any], bdinfo: bool = True) -> None:
+        if disc["type"] == "BDMV" and not bdinfo:
+            # The tracker carries this disc's BDInfo in its own field; the name still labels the screenshots.
+            desc_parts.append(f"{disc.get('name', 'BDINFO')}\n\n")
+            return
         blocks = self.disc_mediainfo_blocks(disc)
         if not blocks:
             return
@@ -2163,11 +2168,12 @@ class DescriptionBuilder:
         images: list[dict[str, str]],
         multi_screens: int,
         include_header: bool = True,
+        disc_bdinfo: bool = True,
     ) -> str:
         # Trackers upload concurrently, but each pack file's images are created
         # once: later trackers wait here and reuse them.
         async with release_image_lock(meta):
-            return await self._render_discs_and_screenshots(meta, approved_image_hosts, images, multi_screens, include_header)
+            return await self._render_discs_and_screenshots(meta, approved_image_hosts, images, multi_screens, include_header, disc_bdinfo)
 
     async def _render_discs_and_screenshots(
         self,
@@ -2176,6 +2182,7 @@ class DescriptionBuilder:
         images: list[dict[str, str]],
         multi_screens: int,
         include_header: bool = True,
+        disc_bdinfo: bool = True,
     ) -> str:
         if not images:
             return ""
@@ -2376,7 +2383,7 @@ class DescriptionBuilder:
                         if meta.get(new_images_key):
                             logger.debug(f"[yellow]Found needed image URLs for {new_images_key}")
                             desc_parts.append("[center]")
-                            self._append_disc_mediainfo(desc_parts, each)
+                            self._append_disc_mediainfo(desc_parts, each, disc_bdinfo)
                             desc_parts.append("[/center]\n\n")
                             # Use existing URLs from meta to write to descfile
                             desc_parts.append("[center]")
@@ -2392,7 +2399,7 @@ class DescriptionBuilder:
                             meta.retry_count += 1
                             meta[new_images_key] = []
                             desc_parts.append("[center]")
-                            self._append_disc_mediainfo(desc_parts, each)
+                            self._append_disc_mediainfo(desc_parts, each, disc_bdinfo)
                             desc_parts.append("[/center]\n\n")
                             # Check if new screenshots already exist before running prep.screenshots
                             new_screens = [f.name for f in manifest_files(meta.base_dir, meta.uuid, f"FILE_{i}")]
@@ -2484,6 +2491,9 @@ class DescriptionBuilder:
         char_count = 0
         max_char_limit = char_limit  # Character limit
         other_files_spoiler_open = False  # Track if "Other files" spoiler has been opened
+        # pack_mediainfo keeps each file's name and MediaInfo when multiScreens is 0, so only
+        # the first file gets screenshots. --sorted-filelist packs are not ordered episodes.
+        list_pack_files = multi_screens != 0 or (not meta.sorted_filelist and self._get_bool_config("pack_mediainfo", False, meta))
         total_files_to_process = min(len(filelist), process_limit)
         processed_count = 0
         if multi_screens != 0 and total_files_to_process > 1:
@@ -2592,13 +2602,13 @@ class DescriptionBuilder:
                 filename = Path(file.strip()).stem.replace("[", "").replace("]", "")
 
                 # If we are beyond the file limit, add all further files in a spoiler
-                if multi_screens != 0 and i >= file_limit and not other_files_spoiler_open:
+                if list_pack_files and i >= file_limit and not other_files_spoiler_open:
                     desc_parts.append("[center][spoiler=Other files]\n")
                     char_count += len("[center][spoiler=Other files]\n")
                     other_files_spoiler_open = True
 
                 # Write filename in BBCode format with MediaInfo in spoiler if not the first file
-                if multi_screens != 0:
+                if list_pack_files:
                     if i > 0 and char_count < max_char_limit:
                         mi_dump = await _pack_file_mediainfo(file)
                         parsed_mediainfo = self.parser.parse_mediainfo(mi_dump)
@@ -2760,17 +2770,30 @@ class DescriptionBuilder:
             description = bbcode.convert_named_colors(description)
             description = bbcode.convert_headings_to_sizes(description)
 
+        if tracker in {"BJSHARE", "BRASILTRACKER"}:
+            description = bbcode.convert_comparison_to_centered(description, 1000)
+            description = bbcode.convert_for_gazelle_parser(description)
+
         if tracker == "BRASILTRACKER":
-            description = bbcode.remove_img_resize(description)
-            description = bbcode.remove_list(description)
+            description = re.sub(r"\[(/?)(?:collapse|expand)(=[^\]]*)?\]", r"[\1spoiler\2]", description, flags=re.IGNORECASE)
+            # Only video ids embed correctly; a full URL is autolinked inside the player markup.
+            description = bbcode.convert_videos_to_youtube_ids(description)
+            description = re.sub(r"\[align=(center|right|left)\](.*?)\[/align\]", r"[\1]\2[/\1]", description, flags=re.IGNORECASE | re.DOTALL)
 
         if tracker == "BJSHARE":
+            # [spoiler] only blacks out text and drops its title; [hide] is the collapsible block.
             description = bbcode.convert_named_spoiler_to_named_hide(description)
             description = bbcode.convert_spoiler_to_hide(description)
-            description = bbcode.remove_img_resize(description)
+            description = re.sub(r"\[(/?)(?:collapse|expand)(=[^\]]*)?\]", r"[\1hide\2]", description, flags=re.IGNORECASE)
+            # Embeds need the full URL; a bare id is shown as text.
+            description = re.sub(r"\[youtube\]\s*([\w-]{11})\s*\[/youtube\]", r"[youtube]https://www.youtube.com/watch?v=\1[/youtube]", description, flags=re.IGNORECASE)
+            description = re.sub(
+                r"\[video\]\s*(?!https?://(?:www\.|m\.)?(?:youtube\.com|youtu\.be)/)([^\[]+?)\s*\[/video\]", r"[url]\1[/url]", description, flags=re.IGNORECASE
+            )
+            # Only [center] and [align=center|right] are supported; left is the default alignment.
             description = bbcode.convert_to_align(description)
-            description = bbcode.remove_list(description)
-            description = description.replace("[code]", "[pre]").replace("[/code]", "[/pre]")
+            description = re.sub(r"\[align=left\](.*?)\[/align\]", r"\1", description, flags=re.IGNORECASE | re.DOTALL)
+            description = re.sub(r"\[(/?)mediainfo\]", r"[\1pre]", description, flags=re.IGNORECASE)
 
         if tracker == "ANTHELION":
             description = bbcode.convert_to_align(description)
@@ -2782,24 +2805,21 @@ class DescriptionBuilder:
             description = description.replace("[code]", "[pre]").replace("[/code]", "[/pre]")
 
         if tracker == "DIGITALCORE":
+            # Supported tags were checked with docs/bbcode-benchmark.txt; lists, [hr], [mediainfo] and titled spoilers render.
+            description = bbcode.convert_comparison_to_centered(description, 1000)
             description = bbcode.remove_img_resize(description)
-            description = description.replace("[user]", "").replace("[/user]", "")
-            description = description.replace("[align=left]", "").replace("[/align]", "")
-            description = description.replace("[right]", "").replace("[/right]", "")
-            description = description.replace("[align=right]", "").replace("[/align]", "")
-            description = bbcode.remove_sup(description)
-            description = bbcode.remove_sub(description)
-            description = description.replace("[alert]", "").replace("[/alert]", "")
-            description = description.replace("[note]", "").replace("[/note]", "")
-            description = description.replace("[hr]", "").replace("[/hr]", "")
-            description = description.replace("[h1]", "[u][b]").replace("[/h1]", "[/b][/u]")
-            description = description.replace("[h2]", "[u][b]").replace("[/h2]", "[/b][/u]")
-            description = description.replace("[h3]", "[u][b]").replace("[/h3]", "[/b][/u]")
-            description = description.replace("[ul]", "").replace("[/ul]", "")
-            description = description.replace("[ol]", "").replace("[/ol]", "")
-            description = description.replace("[*] ", "• ").replace("[*]", "• ")
-            description = bbcode.convert_named_spoiler_to_normal_spoiler(description)
-            description = bbcode.remove_list(description)
+            description = re.sub(r"\[(/?)(?:hide|collapse|expand)(=[^\]]*)?\]", r"[\1spoiler\2]", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[(/?)strike\]", r"[\1s]", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[h[1-6]\]", "[u][b]", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[/h[1-6]\]", "[/b][/u]", description, flags=re.IGNORECASE)
+            # A quoted URL is shown as plain text without the link.
+            description = re.sub(r'\[url="([^"\]]+)"\]', r"[url=\1]", description, flags=re.IGNORECASE)
+            # Only [center] is supported; other alignments fall back to the default left alignment.
+            description = re.sub(r"\[align=center\](.*?)\[/align\]", r"[center]\1[/center]", description, flags=re.IGNORECASE | re.DOTALL)
+            description = re.sub(r"\[/?(?:align(?:=[^\]]*)?|right|left|indent|user|alert|note|sup|sub)\]", "", description, flags=re.IGNORECASE)
+            # Only [video] embeds, and it needs the full URL.
+            description = re.sub(r"\[youtube\]\s*([\w-]{11})\s*\[/youtube\]", r"[video]https://www.youtube.com/watch?v=\1[/video]", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[youtube\]\s*(https?://[^\[]+?)\s*\[/youtube\]", r"[video]\1[/video]", description, flags=re.IGNORECASE)
             description = description.strip()
 
         if tracker == "FILEIPLAY":
@@ -2845,33 +2865,51 @@ class DescriptionBuilder:
             description = re.sub(r"\[img=(?P<width>\d+)\](?P<src>[^\[]+)\[/img\]", r'<img src="\g<src>" width="\g<width>">', description, flags=re.IGNORECASE)
 
         if tracker == "GREATPOSTERWALL":
-            description = bbcode.remove_sup(description)
-            description = bbcode.remove_sub(description)
-            description = bbcode.convert_to_align(description)
-            description = bbcode.remove_list(description)
-            description = description.replace("[code]", "[pre]").replace("[/code]", "[/pre]")
             description = re.sub(r"\[url=[^\]]+\]\[img(?:=[^\]]+)?\]([^\[]+)\[/img\]\[/url\]", r"[img]\1[/img]", description, flags=re.IGNORECASE)
+            # [comparison], [mediainfo], [hr] and titled spoilers render natively.
+            description = bbcode.convert_for_gazelle_parser(description, supports_hr=True)
+            description = re.sub(r"\[(/?)(?:collapse|expand)(=[^\]]*)?\]", r"[\1spoiler\2]", description, flags=re.IGNORECASE)
+            # Nothing embeds video, so link it instead.
+            description = re.sub(
+                r"\[(?:youtube|video)\]\s*([\w-]{11})\s*\[/(?:youtube|video)\]", r"[url]https://www.youtube.com/watch?v=\1[/url]", description, flags=re.IGNORECASE
+            )
+            description = re.sub(r"\[(?:youtube|video)\]\s*(https?://[^\[]+?)\s*\[/(?:youtube|video)\]", r"[url]\1[/url]", description, flags=re.IGNORECASE)
+            # Only [align=center|right] is supported; left is the default alignment.
+            description = bbcode.convert_to_align(description)
+            description = re.sub(r"\[align=left\](.*?)\[/align\]", r"\1", description, flags=re.IGNORECASE | re.DOTALL)
 
         if tracker == "HDSPACE":
-            description = description.replace("[user]", "").replace("[/user]", "")
-            description = description.replace("[align=left]", "").replace("[/align]", "")
-            description = description.replace("[right]", "").replace("[/right]", "")
-            description = description.replace("[align=right]", "").replace("[/align]", "")
-            description = bbcode.remove_sub(description)
-            description = bbcode.remove_sup(description)
-            description = description.replace("[alert]", "").replace("[/alert]", "")
-            description = description.replace("[note]", "").replace("[/note]", "")
-            description = description.replace("[hr]", "").replace("[/hr]", "")
-            description = description.replace("[h1]", "[u][b]").replace("[/h1]", "[/b][/u]")
-            description = description.replace("[h2]", "[u][b]").replace("[/h2]", "[/b][/u]")
-            description = description.replace("[h3]", "[u][b]").replace("[/h3]", "[/b][/u]")
-            description = description.replace("[ul]", "").replace("[/ul]", "")
-            description = description.replace("[ol]", "").replace("[/ol]", "")
-            description = bbcode.remove_hide(description)
-            description = bbcode.remove_img_resize(description)
+            # Supported tags were checked with docs/bbcode-benchmark.txt; [list], [center], [quote] and named colors render.
             description = bbcode.convert_comparison_to_centered(description, 1000)
-            description = bbcode.remove_spoiler(description)
+            description = bbcode.remove_img_resize(description)
+            # [code] uses a proportional font, so MediaInfo-like columns need [pre].
+            description = bbcode.convert_code_to_pre(description)
+            description = re.sub(r"\[(/?)mediainfo\]", r"[\1pre]", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[h[1-6]\]", "[u][b]", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[/h[1-6]\]", "[/b][/u]", description, flags=re.IGNORECASE)
+            # Only CSS named colors work; hex values that have no name are dropped.
             description = bbcode.convert_hex_colors_to_named(description)
+            description = re.sub(r"\[color=#[0-9a-f]{3,6}\](.*?)\[/color\]", r"\1", description, flags=re.IGNORECASE | re.DOTALL)
+            description = bbcode.clamp_size_tags(description, 7)
+            description = re.sub(r"\[align=center\](.*?)\[/align\]", r"[center]\1[/center]", description, flags=re.IGNORECASE | re.DOTALL)
+            description = re.sub(r"\[ul\]", "[list]", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[ol\]", "[list=1]", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[/(?:ul|ol)\]", "[/list]", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[li\]", "[*]", description, flags=re.IGNORECASE)
+            # Tables are not supported, so keep one row per line.
+            description = re.sub(r"(?:\[/t[dh]\]\s*)?\[/tr\]", "\n", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[/t[dh]\]\s*", " | ", description, flags=re.IGNORECASE)
+            description = re.sub(
+                r"\[(?:youtube|video)\]\s*([\w-]{11})\s*\[/(?:youtube|video)\]", r"[url]https://www.youtube.com/watch?v=\1[/url]", description, flags=re.IGNORECASE
+            )
+            description = re.sub(r"\[(?:youtube|video)\]\s*(https?://[^\[]+?)\s*\[/(?:youtube|video)\]", r"[url]\1[/url]", description, flags=re.IGNORECASE)
+            description = re.sub(
+                r"\[/?(?:align(?:=[^\]]*)?|right|left|indent|user|alert|note|hr|s|strike|sup|sub|li|font(?:=[^\]]*)?|table|tr|td|th"
+                r"|spoiler(?:=[^\]]*)?|hide(?:=[^\]]*)?|collapse(?:=[^\]]*)?|expand(?:=[^\]]*)?)\]",
+                "",
+                description,
+                flags=re.IGNORECASE,
+            )
 
             # Apply custom image line breaks for HDSPACE: if "imgbox" is not in the web_url, place only one image per line.
             def hds_image_formatter(match: re.Match[str]) -> str:
@@ -2905,24 +2943,60 @@ class DescriptionBuilder:
             description = bbcode.remove_spoiler(description)
 
         if tracker == "HDTORRENTS":
-            description = description.replace("[user]", "").replace("[/user]", "")
-            description = description.replace("[align=left]", "").replace("[/align]", "")
-            description = description.replace("[align=right]", "").replace("[/align]", "")
-            description = bbcode.remove_sub(description)
-            description = bbcode.remove_sup(description)
-            description = description.replace("[alert]", "").replace("[/alert]", "")
-            description = description.replace("[note]", "").replace("[/note]", "")
-            description = description.replace("[hr]", "").replace("[/hr]", "")
-            description = description.replace("[h1]", "[u][b]").replace("[/h1]", "[/b][/u]")
-            description = description.replace("[h2]", "[u][b]").replace("[/h2]", "[/b][/u]")
-            description = description.replace("[h3]", "[u][b]").replace("[/h3]", "[/b][/u]")
-            description = description.replace("[ul]", "").replace("[/ul]", "")
-            description = description.replace("[ol]", "").replace("[/ol]", "")
-            description = bbcode.convert_spoiler_to_hide(description)
-            description = bbcode.remove_img_resize(description)
+            # Supported tags were checked with docs/bbcode-benchmark.txt.
+            # The description is cut at the first character outside the Basic Multilingual Plane (e.g. emoji).
+            description = re.sub(r"[\U00010000-\U0010FFFF]", "", description)
             description = bbcode.convert_comparison_to_centered(description, 1000)
-            description = bbcode.remove_spoiler(description)
-            description = bbcode.remove_list(description)
+            description = bbcode.remove_img_resize(description)
+            # [code] uses a proportional font, so MediaInfo-like columns need [pre].
+            description = bbcode.convert_code_to_pre(description)
+            description = re.sub(r"\[(/?)mediainfo\]", r"[\1pre]", description, flags=re.IGNORECASE)
+            # Only an untitled [hide] collapses, so keep titles as bold text above it.
+            description = re.sub(r"\[(?:spoiler|hide|collapse|expand)=([^\]]+)\]", lambda m: f"[b]{m.group(1).strip()}[/b]\n[hide]", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[(/?)(?:spoiler|collapse|expand)\]", r"[\1hide]", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[h[1-6]\]", "[u][b]", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[/h[1-6]\]", "[/b][/u]", description, flags=re.IGNORECASE)
+            description = re.sub(
+                r"\[color=#([0-9a-f])([0-9a-f])([0-9a-f])\]",
+                lambda m: "[color=#" + "".join(c * 2 for c in m.groups()).lower() + "]",
+                description,
+                flags=re.IGNORECASE,
+            )
+            description = bbcode.clamp_size_tags(description, 7)
+            description = re.sub(r'\[url="([^"\]]+)"\]', r"[url=\1]", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[align=(center|right|left)\](.*?)\[/align\]", r"[\1]\2[/\1]", description, flags=re.IGNORECASE | re.DOTALL)
+            description = re.sub(r"\[li\]", "[*]", description, flags=re.IGNORECASE)
+            # Tables are not supported, so keep one row per line.
+            description = re.sub(r"(?:\[/t[dh]\]\s*)?\[/tr\]", "\n", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[/t[dh]\]\s*", " | ", description, flags=re.IGNORECASE)
+            description = re.sub(
+                r"\[(?:youtube|video)\]\s*([\w-]{11})\s*\[/(?:youtube|video)\]", r"[url]https://www.youtube.com/watch?v=\1[/url]", description, flags=re.IGNORECASE
+            )
+            description = re.sub(r"\[(?:youtube|video)\]\s*(https?://[^\[]+?)\s*\[/(?:youtube|video)\]", r"[url]\1[/url]", description, flags=re.IGNORECASE)
+            # [*] items render on their own; the list wrappers do not.
+            description = re.sub(
+                r"\[/?(?:align(?:=[^\]]*)?|list(?:=[^\]]*)?|ul|ol|li|table|tr|td|th|indent|user|alert|note|hr|s|strike|sup|sub)\]", "", description, flags=re.IGNORECASE
+            )
+
+        if tracker == "MTEAM":
+            # Supported tags were checked with docs/bbcode-benchmark.txt; MTEAM.generate_description converts the rest to Markdown.
+            description = bbcode.convert_comparison_to_centered(description, 1000)
+            description = bbcode.remove_img_resize(description)
+            description = re.sub(r'\[url="([^"\]]+)"\]', r"[url=\1]", description, flags=re.IGNORECASE)
+            description = bbcode.convert_headings_to_sizes(description)
+            description = re.sub(r"\[(/?)strike\]", r"[\1s]", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[(/?)(?:pre|mediainfo)\]", r"[\1code]", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[align=(center|right|left)\](.*?)\[/align\]", r"[\1]\2[/\1]", description, flags=re.IGNORECASE | re.DOTALL)
+            # No collapsible block exists, so show the content with its title in bold.
+            description = re.sub(r"\[(?:spoiler|hide|collapse|expand)=([^\]]+)\]", lambda m: f"[b]{m.group(1).strip()}[/b]\n", description, flags=re.IGNORECASE)
+            # [*] is read as Markdown emphasis; plain bullets render reliably.
+            description = re.sub(r"\[(?:\*|li)\]\s*", "• ", description, flags=re.IGNORECASE)
+            # Embeds are stripped, so link the video instead.
+            description = re.sub(
+                r"\[(?:youtube|video)\]\s*([\w-]{11})\s*\[/(?:youtube|video)\]", r"[url]https://www.youtube.com/watch?v=\1[/url]", description, flags=re.IGNORECASE
+            )
+            description = re.sub(r"\[(?:youtube|video)\]\s*(https?://[^\[]+?)\s*\[/(?:youtube|video)\]", r"[url]\1[/url]", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[/?(?:align(?:=[^\]]*)?|list(?:=[^\]]*)?|ul|ol|li|indent|note|hr|spoiler|hide|collapse|expand)\]", "", description, flags=re.IGNORECASE)
 
         if get_tracker_framework(tracker) == "NEXUSPHP":
             description = description.replace("[user]", "").replace("[/user]", "")
@@ -2947,23 +3021,48 @@ class DescriptionBuilder:
             description = re.sub(r"\n{3,}", "\n\n", description)
 
         if tracker == "SPEEDAPP":
-            description = bbcode.remove_img_resize(description)
-            description = bbcode.convert_named_spoiler_to_normal_spoiler(description)
-            description = description.replace("[note]", "Note: ").replace("[/note]", "").replace("[code]", "").replace("[/code]", "").replace("[*]", "• ")
-            description = bbcode.remove_spoiler(description)
-            description = bbcode.remove_list(description)
+            # Supported tags were checked with docs/bbcode-benchmark.txt; [code], [note], lists, headings and spoilers render.
+            description = bbcode.convert_comparison_to_centered(description, 1000)
+            # [img=N] is shown as a plain link; the width attribute form works.
+            description = re.sub(r"\[img=(\d+)(?:x\d+)?\]", r"[img width=\1]", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[(/?)mediainfo\]", r"[\1code]", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[(/?)strike\]", r"[\1s]", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[(/?)(?:hide|collapse|expand)(=[^\]]*)?\]", r"[\1spoiler\2]", description, flags=re.IGNORECASE)
+            # Spoiler titles stop at the first space, so keep a multi-word title as bold text above the spoiler.
+            description = re.sub(r"\[spoiler=([^\]]*\s[^\]]*)\]", lambda m: f"[b]{m.group(1).strip()}[/b]\n[spoiler]", description, flags=re.IGNORECASE)
+            # Tables are not supported, so keep one row per line.
+            description = re.sub(r"(?:\[/t[dh]\]\s*)?\[/tr\]", "\n", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[/t[dh]\]\s*", " | ", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[/?(?:table|tr|td|th|indent)\]", "", description, flags=re.IGNORECASE)
+            # Only a video id embeds.
+            description = bbcode.convert_videos_to_youtube_ids(description)
 
         if tracker == "TORRENTLEECH":
-            description = description.replace("[center]", "<center>").replace("[/center]", "</center>")
+            # Supported tags were checked with docs/bbcode-benchmark.txt. The description is shown in a monospace
+            # pre-wrap block, so code tags are not needed, and HTML such as <center> renders.
+            description = bbcode.convert_comparison_to_centered(description, 1000)
+            # [center] only becomes an inline span that does not center anything.
+            description = re.sub(r"\[align=center\](.*?)\[/align\]", r"[center]\1[/center]", description, flags=re.IGNORECASE | re.DOTALL)
+            description = re.sub(r"\[(/?)center\]", r"<\1center>", description, flags=re.IGNORECASE)
             # TorrentLeech has no heading BBCode; render headings as bold text instead.
             description = re.sub(r"\[(/?)h[1-6]\]", r"[\1b]", description, flags=re.IGNORECASE)
-            description = re.sub(r"\[\*\]", "\n[*]", description, flags=re.IGNORECASE)
+            description = re.sub(r"(?<!\n)\[\*\]", "\n[*]", description, flags=re.IGNORECASE)
             description = re.sub(r"\[c\](.*?)\[/c\]", r"[code]\1[/code]", description, flags=re.IGNORECASE | re.DOTALL)
+            # Saving drops everything after an [hr] tag.
             description = re.sub(r"\[hr\]", "---", description, flags=re.IGNORECASE)
-            description = re.sub(r'\[img=[\d"x]+\]', "[img]", description, flags=re.IGNORECASE)
+            # Any [img] attribute produces broken markup.
+            description = bbcode.remove_img_resize(description)
+            description = re.sub(r"\[quote=[^\]]*\]", "[quote]", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[(/?)strike\]", r"[\1s]", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[th\](.*?)\[/th\]", r"[td][b]\1[/b][/td]", description, flags=re.IGNORECASE | re.DOTALL)
+            description = bbcode.convert_videos_to_youtube_ids(description)
             description = description.replace("[*] ", "• ").replace("[*]", "• ").replace("[note]", "Note: ").replace("[/note]", "").replace("[code]", "").replace("[/code]", "")
-            description = bbcode.remove_list(description)
-            description = bbcode.convert_comparison_to_centered(description, 1000)
+            description = re.sub(
+                r"\[/?(?:list(?:=[^\]]*)?|align(?:=[^\]]*)?|right|left|indent|mediainfo|hide(?:=[^\]]*)?|collapse(?:=[^\]]*)?|expand(?:=[^\]]*)?)\]",
+                "",
+                description,
+                flags=re.IGNORECASE,
+            )
             description = bbcode.remove_spoiler(description)
             description = re.sub(r"\n{3,}", "\n\n", description)
 
@@ -2981,8 +3080,22 @@ class DescriptionBuilder:
             description = bbcode.convert_hide_to_spoiler(description)
             description = description.replace("[user]", "").replace("[/user]", "")
             description = description.replace("[hr]", "").replace("[/hr]", "")
-            description = description.replace("[ul]", "").replace("[/ul]", "")
-            description = description.replace("[ol]", "").replace("[/ol]", "")
+            # Tags below are shown as raw text by UNIT3D (checked with docs/bbcode-benchmark.txt).
+            description = re.sub(r"\[(/?)(?:collapse|expand)(=[^\]]*)?\]", r"[\1spoiler\2]", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[(/?)strike\]", r"[\1s]", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[(/?)mediainfo\]", r"[\1code]", description, flags=re.IGNORECASE)
+            # A quoted URL becomes a "Broken link".
+            description = re.sub(r'\[url="([^"\]]+)"\]', r"[url=\1]", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[align=(center|right|left)\](.*?)\[/align\]", r"[\1]\2[/\1]", description, flags=re.IGNORECASE | re.DOTALL)
+            description = re.sub(r"\[align=justify\](.*?)\[/align\]", r"\1", description, flags=re.IGNORECASE | re.DOTALL)
+            description = re.sub(r"\[/?indent\]", "", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[ul\]", "[list]", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[ol\]", "[list=1]", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[/(?:ul|ol)\]", "[/list]", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[li\]", "[*]", description, flags=re.IGNORECASE)
+            description = re.sub(r"\[/li\]", "", description, flags=re.IGNORECASE)
+            # Only a video id embeds; a full URL is shown as a raw tag around a link.
+            description = bbcode.convert_videos_to_youtube_ids(description)
             description = bbcode.remove_extra_lines(description)
             for index, comparison in enumerate(comparisons):
                 description = description.replace(f"\x00COMPARISON{index}\x00", comparison)
