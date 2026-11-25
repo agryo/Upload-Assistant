@@ -3,7 +3,7 @@
   <h1>Upload-Assistant</h1>
   <p>Prepare media and upload it to supported private trackers and Usenet indexers.</p>
 
-[![Python Version](https://img.shields.io/badge/Python-3.14%2B-blue?logo=python&logoColor=white)](https://www.python.org/) [![License](https://img.shields.io/badge/License-UAPL%20v1.0-orange)](LICENSE) [![Ruff](https://img.shields.io/badge/Ruff-000000?logo=ruff&logoColor=white)](https://github.com/astral-sh/ruff) [![Pyright](https://img.shields.io/badge/Pyright-strict-brightgreen)](https://github.com/microsoft/pyright) [![code style: prettier](https://img.shields.io/badge/code%20style-prettier-ff69b4.svg)](https://prettier.io) [![Docker Image CI](https://github.com/wastaken7/Upload-Assistant/actions/workflows/docker-image.yml/badge.svg)](https://github.com/wastaken7/Upload-Assistant/actions/workflows/docker-image.yml)
+[![Python Version](https://img.shields.io/badge/Python-3.14%2B-blue?logo=python&logoColor=white)](https://www.python.org/) [![License](https://img.shields.io/badge/License-UAPL%20v1.0-orange)](LICENSE) [![Ruff](https://img.shields.io/badge/Ruff-000000?logo=ruff&logoColor=white)](https://github.com/astral-sh/ruff) [![Pyright](https://img.shields.io/badge/Pyright-standard-brightgreen)](https://github.com/microsoft/pyright) [![code style: prettier](https://img.shields.io/badge/code%20style-prettier-ff69b4.svg)](https://prettier.io) [![Docker Image CI](https://github.com/wastaken7/Upload-Assistant/actions/workflows/docker-image.yml/badge.svg)](https://github.com/wastaken7/Upload-Assistant/actions/workflows/docker-image.yml)
 </div>
 
 Upload Assistant collects metadata, generates screenshots and artwork, creates torrent or NZB files, and publishes releases to the destinations you choose. Use it through a browser interface (WebUI) or the command line (CLI).
@@ -367,7 +367,7 @@ uv tool install --force git+https://github.com/wastaken7/Upload-Assistant.git
 | <img src="web_ui/static/img/trackers/oldtoonsworld.png" width="16" height="16" />             | OldToonsWorld          | OLDTOONSWORLD          | MOVIE, TV                    |
 | <img src="web_ui/static/img/trackers/onlyencodes.png" width="16" height="16" />               | OnlyEncodes+           | ONLYENCODES            | MOVIE, TV                    |
 | <img src="web_ui/static/img/trackers/orpheus.png" width="16" height="16" />                   | Orpheus                | ORPHEUS                | MUSIC                        |
-| <img src="web_ui/static/img/trackers/passthepopcorn.png" width="16" height="16" />            | PassThePopcorn         | PASSTHEPOPCORN         | MOVIE                        |
+| <img src="web_ui/static/img/trackers/passthepopcorn.png" width="16" height="16" />            | PassThePopcorn         | PASSTHEPOPCORN         | MOVIE, TV                    |
 | <img src="web_ui/static/img/trackers/peergarden.png" width="16" height="16" />                | PeerGarden             | PEERGARDEN             | MOVIE, TV, GAME, BOOK, MUSIC |
 | <img src="web_ui/static/img/trackers/polishtorrent.png" alt="" width="16" height="16" />      | Polish Torrent         | POLISHTORRENT          | MOVIE, TV                    |
 | <img src="web_ui/static/img/trackers/portugas.png" width="16" height="16" />                  | Portugas               | PORTUGAS               | MOVIE, TV                    |
